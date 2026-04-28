@@ -1,0 +1,2433 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Boulangerie Bamba – Gestion Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.8.0/Recharts.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --gold:   #D97706;
+    --brown:  #92400E;
+    --amber:  #F59E0B;
+    --green:  #059669;
+    --red:    #DC2626;
+    --yellow: #EAB308;
+    --cream:  #FFFBEB;
+    --white:  #FFFFFF;
+    --dark:   #1F2937;
+    --muted:  #6B7280;
+    --border: #FDE68A;
+    --bg:     #FFF7ED;
+  }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: linear-gradient(135deg, #FFF7ED 0%, #FFFBEB 100%);
+    min-height: 100vh;
+    color: var(--dark);
+  }
+  h1,h2,h3,h4 { font-family: 'Syne', sans-serif; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+  /* ── Layout ── */
+  #root { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 260px; flex-shrink: 0;
+    background: linear-gradient(180deg, #78350F 0%, #451a03 100%);
+    padding: 28px 20px; color: #fff;
+    display: flex; flex-direction: column;
+    position: sticky; top: 0; height: 100vh;
+    overflow-y: auto;
+  }
+  .sidebar-logo { text-align: center; margin-bottom: 36px; }
+  .sidebar-logo span { 
+    font-size: 44px; display: flex; justify-content: center; align-items: center; 
+    width: 60px; height: 60px; margin: 0 auto;
+  }
+  .sidebar-logo span img { width: 100%; height: 100%; object-fit: contain; border-radius: 8px; }
+  .sidebar-logo h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.5px; margin-top: 10px; }
+  .sidebar-logo p { font-size: 11px; opacity: .7; margin-top: 3px; }
+  .nav-btn {
+    width: 100%; padding: 13px 14px; background: transparent;
+    border: none; border-radius: 10px; color: #fff;
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+    cursor: pointer; display: flex; align-items: center; gap: 11px;
+    transition: background .18s; margin-bottom: 4px; text-align: start;
+  }
+  .nav-btn:hover { background: rgba(255,255,255,.1); }
+  .nav-btn.active { background: rgba(255,255,255,.18); font-weight: 700; }
+  .nav-icon { font-size: 18px; width: 22px; text-align: center; }
+  .sidebar-footer { margin-top: auto; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.15); }
+  .user-badge {
+    padding: 12px; background: rgba(255,255,255,.1);
+    border-radius: 8px; margin-bottom: 10px;
+    font-size: 13px;
+  }
+  .user-badge strong { display: block; font-size: 15px; }
+  .btn-logout {
+    width: 100%; padding: 11px; background: rgba(220,38,38,.2);
+    border: 1px solid rgba(220,38,38,.3); border-radius: 8px;
+    color: #fff; font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: background .18s;
+  }
+  .btn-logout:hover { background: rgba(220,38,38,.35); }
+
+  /* ── Main content ── */
+  .main { flex: 1; padding: 36px 40px; overflow-y: auto; }
+  .page-title {
+    font-size: 30px; font-weight: 800; letter-spacing: -1px;
+    margin-bottom: 28px;
+  }
+  .page-header {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 28px;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--white); border-radius: 14px;
+    border: 2px solid var(--border);
+    box-shadow: 0 4px 16px rgba(0,0,0,.05);
+    padding: 24px;
+  }
+  .card-title {
+    font-size: 16px; font-weight: 700; margin-bottom: 18px;
+    color: var(--dark);
+  }
+
+  /* ── KPI grid ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 20px; margin-bottom: 28px; }
+  .kpi {
+    background: var(--white); border-radius: 14px;
+    border: 2px solid var(--border);
+    padding: 22px; box-shadow: 0 4px 16px rgba(0,0,0,.05);
+  }
+  .kpi-icon {
+    width: 46px; height: 46px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; margin-bottom: 14px;
+  }
+  .kpi-label { font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: .6px; color: var(--muted); margin-bottom: 6px; }
+  .kpi-value { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+
+  /* ── Chart grid ── */
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(380px,1fr)); gap: 24px; margin-bottom: 28px; }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    padding: 11px 22px;
+    background: linear-gradient(135deg, var(--gold), var(--amber));
+    color: #fff; border: none; border-radius: 10px;
+    font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+    box-shadow: 0 4px 14px rgba(217,119,6,.3);
+    transition: transform .2s, box-shadow .2s;
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(217,119,6,.35); }
+  .btn-secondary {
+    padding: 11px 22px; background: #E5E7EB; color: var(--dark);
+    border: none; border-radius: 10px;
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background .18s;
+  }
+  .btn-secondary:hover { background: #D1D5DB; }
+
+  /* ── Table ── */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th {
+    padding: 13px 16px; background: var(--bg);
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--dark); text-align: start;
+  }
+  .data-table th.right, .data-table td.right { text-align: end; }
+  .data-table td { padding: 15px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: #FFFBF0; }
+
+  /* ── Modal ── */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999; padding: 20px;
+  }
+  .modal-box {
+    background: var(--white); border-radius: 18px; padding: 32px;
+    width: 100%; max-width: 480px; max-height: 90vh;
+    overflow-y: auto; position: relative;
+    box-shadow: 0 24px 60px rgba(0,0,0,.25);
+  }
+  .modal-close {
+    position: absolute; top: 14px; right: 14px;
+    background: #F3F4F6; border: none; width: 32px; height: 32px;
+    border-radius: 8px; cursor: pointer; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); transition: background .15s;
+  }
+  html[dir="rtl"] .modal-close { right: auto; left: 14px; }
+
+  .modal-close:hover { background: #E5E7EB; }
+  .modal-title { font-size: 22px; font-weight: 800; margin-bottom: 22px; }
+
+  /* ── Form ── */
+  .form-group { margin-bottom: 18px; }
+  .form-label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 600; color: var(--dark); }
+  .form-input, .form-select {
+    width: 100%; padding: 12px 14px;
+    border: 2px solid var(--border); border-radius: 10px;
+    font-family: 'DM Sans', sans-serif; font-size: 14px; outline: none;
+    transition: border-color .18s; background: var(--white);
+  }
+  .form-input:focus, .form-select:focus { border-color: var(--gold); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-actions { display: flex; gap: 12px; margin-top: 6px; }
+  .form-actions .btn-secondary, .form-actions .btn-primary { flex: 1; justify-content: center; }
+
+  /* ── Alert ── */
+  .alert-error {
+    background: #FEE2E2; border: 1px solid #FCA5A5; color: #991B1B;
+    padding: 11px 14px; border-radius: 8px; font-size: 13px;
+    margin-bottom: 18px; display: flex; align-items: center; gap: 8px;
+  }
+  .alert-success {
+    background: #F0FDF4; border: 2px solid #86EFAC; color: var(--green);
+    padding: 14px 16px; border-radius: 10px; font-size: 14px;
+    margin-bottom: 18px;
+  }
+  .badge {
+    padding: 5px 11px; border-radius: 6px; font-size: 12px; font-weight: 700;
+    display: inline-block;
+  }
+
+  /* ── Login ── */
+  .login-wrap {
+    min-height: 100vh; display: flex; align-items: center;
+    justify-content: center; padding: 20px;
+    background: linear-gradient(135deg, #FFF7ED 0%, #FFFBEB 100%);
+  }
+  .login-card {
+    background: var(--white); border-radius: 20px; padding: 44px 40px;
+    width: 100%; max-width: 420px;
+    border: 2px solid var(--border);
+    box-shadow: 0 20px 50px rgba(217,119,6,.12);
+  }
+  .login-logo { text-align: center; margin-bottom: 32px; }
+  .login-emoji {
+    width: 80px; height: 80px; margin: 0 auto 18px;
+    background: linear-gradient(135deg, var(--gold), var(--amber));
+    border-radius: 20px; display: flex; align-items: center;
+    justify-content: center; font-size: 40px;
+    transform: rotate(-5deg); box-shadow: 0 8px 20px rgba(217,119,6,.3);
+    overflow: hidden; padding: 5px;
+  }
+  .login-emoji img { width: 100%; height: 100%; object-fit: contain; border-radius: 15px; transform: rotate(5deg); }
+  .login-logo h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+  .login-logo p { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .demo-hint {
+    margin-top: 22px; padding: 14px 16px;
+    background: #FEF3C7; border-radius: 10px;
+    border: 1px dashed #FCD34D; font-size: 13px;
+  }
+  .demo-hint strong { color: var(--brown); display: block; margin-bottom: 5px; }
+
+  /* ── Livreur header ── */
+  .livreur-header {
+    background: linear-gradient(135deg, var(--brown), var(--gold));
+    padding: 28px 32px; border-radius: 16px; color: #fff;
+    margin-bottom: 28px; display: flex; justify-content: space-between;
+    align-items: center; box-shadow: 0 8px 24px rgba(0,0,0,.15);
+  }
+
+  /* ── Client card ── */
+  .client-card {
+    background: var(--white); border: 2px solid var(--border);
+    border-radius: 14px; padding: 18px; font-size: 13px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.03); transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .client-card:hover {
+    transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,.08);
+  }
+  .client-meta { color: var(--muted); margin-top: 5px; }
+
+  /* ── Livreur card ── */
+  .livreur-card {
+    background: var(--white); border-radius: 14px; padding: 22px;
+    border: 2px solid var(--border); box-shadow: 0 4px 14px rgba(0,0,0,.05);
+  }
+  .livreur-avatar {
+    width: 52px; height: 52px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--gold), var(--amber));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; flex-shrink: 0;
+  }
+  .livreur-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
+  .mini-stat { background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+  .mini-stat-label { font-size: 10px; text-transform: uppercase; font-weight: 700; color: var(--muted); letter-spacing: .5px; }
+  .mini-stat-value { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; margin-top: 3px; }
+
+  /* ── Bar chart shim (pure CSS) ── */
+  .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 180px; padding: 0 4px; }
+  .bar-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .bar-fill {
+    width: 100%; border-radius: 6px 6px 0 0;
+    background: linear-gradient(180deg, var(--amber), var(--gold));
+    min-height: 4px; transition: height .4s ease;
+  }
+  .bar-label { font-size: 10px; color: var(--muted); font-weight: 600; }
+  .line-chart { position: relative; height: 180px; }
+  .line-svg { width: 100%; height: 100%; }
+
+  /* ── Periode selector ── */
+  .periode-select {
+    padding: 10px 14px; border: 2px solid var(--border);
+    border-radius: 10px; font-family: 'DM Sans'; font-size: 14px;
+    font-weight: 600; color: var(--dark); background: var(--white);
+    cursor: pointer; outline: none;
+  }
+
+  /* ── Empty state ── */
+  .empty { text-align: center; padding: 48px 20px; color: var(--muted); }
+  .empty-icon { font-size: 52px; margin-bottom: 14px; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 20px; }
+    .chart-grid { grid-template-columns: 1fr; }
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .kpi-grid { grid-template-columns: 1fr; }
+    .form-row { grid-template-columns: 1fr; }
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeIn { from { opacity:0; transform:translateY(10px);} to { opacity:1; transform:none;} }
+  .fade-in { animation: fadeIn .3s ease; }
+  @keyframes slideIn { from { opacity:0; transform:scale(.95);} to { opacity:1; transform:scale(1);} }
+  .modal-box { animation: slideIn .2s ease; }
+
+  /* ── Toast Notifications ── */
+  #toast-container {
+    position: fixed; bottom: 80px; right: 24px; z-index: 99999;
+    display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+  }
+  .toast {
+    min-width: 280px; max-width: 380px; padding: 14px 18px;
+    border-radius: 14px; font-size: 14px; font-weight: 600;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18);
+    pointer-events: all; cursor: pointer;
+    animation: toastIn .35s cubic-bezier(.34,1.56,.64,1);
+    transition: opacity .3s, transform .3s;
+  }
+  @keyframes toastIn { from { opacity:0; transform:translateX(60px) scale(.9);} to { opacity:1; transform:none;} }
+  .toast.hide { opacity: 0; transform: translateX(60px) scale(.9); }
+  .toast.success { background: #ECFDF5; border: 2px solid #6EE7B7; color: #065F46; }
+  .toast.error   { background: #FEF2F2; border: 2px solid #FCA5A5; color: #7F1D1D; }
+  .toast.info    { background: #EFF6FF; border: 2px solid #93C5FD; color: #1E3A5F; }
+  .toast.warning { background: #FFFBEB; border: 2px solid #FCD34D; color: #78350F; }
+  .toast-icon { font-size: 20px; flex-shrink: 0; }
+
+  /* ── Loading Screen ── */
+  #loading-screen {
+    position: fixed; inset: 0; z-index: 99998;
+    background: linear-gradient(135deg, #78350F 0%, #451a03 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: white; transition: opacity .5s;
+  }
+  #loading-screen.hidden { opacity: 0; pointer-events: none; }
+  .loading-logo-wrap {
+    width: 90px; height: 90px; border-radius: 22px;
+    background: rgba(255,255,255,.12); display: flex; align-items: center; justify-content: center;
+    font-size: 48px; margin-bottom: 24px; border: 2px solid rgba(255,255,255,.2);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{transform:scale(1);}50%{transform:scale(1.06);} }
+  .loading-bar-wrap { width: 200px; height: 5px; background: rgba(255,255,255,.2); border-radius: 10px; margin-top: 28px; overflow: hidden; }
+  .loading-bar { height: 100%; background: var(--amber); border-radius: 10px; animation: loadBar 1.8s ease-in-out infinite; }
+  @keyframes loadBar { 0%{width:5%;}70%{width:90%;}100%{width:5%;} }
+
+  /* ── Mobile Bottom Nav ── */
+  .mobile-nav {
+    display: none; position: fixed; bottom: 0; left: 0; right: 0;
+    background: white; border-top: 2px solid var(--border);
+    z-index: 1000; padding: 6px 0 env(safe-area-inset-bottom, 6px);
+    box-shadow: 0 -4px 20px rgba(0,0,0,.1);
+  }
+  .mobile-nav-inner { display: flex; justify-content: space-around; }
+  .mobile-nav-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 6px 4px; background: none; border: none; cursor: pointer;
+    font-size: 11px; color: var(--muted); font-family: 'DM Sans'; font-weight: 600;
+    transition: color .18s;
+  }
+  .mobile-nav-btn.active { color: var(--gold); }
+  .mobile-nav-btn .mnav-icon { font-size: 22px; }
+  @media (max-width: 900px) {
+    .mobile-nav { display: block; }
+    .main { padding: 20px 16px 90px !important; }
+    #toast-container { bottom: 90px; right: 12px; }
+  }
+
+  /* ── KPI Trend ── */
+  .kpi-trend { font-size: 12px; font-weight: 700; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+  .trend-flat { color: var(--muted); }
+
+  /* ── Search bar ── */
+  .search-bar {
+    width: 100%; padding: 11px 16px; border: 2px solid var(--border);
+    border-radius: 10px; font-family: 'DM Sans'; font-size: 14px;
+    outline: none; transition: border-color .18s; background: var(--white);
+    margin-bottom: 16px;
+  }
+  .search-bar:focus { border-color: var(--gold); }
+
+  /* ── Enhanced client card ── */
+  .whatsapp-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 11px; background: #25D366; color: white;
+    border: none; border-radius: 8px; font-size: 12px; font-weight: 700;
+    cursor: pointer; text-decoration: none; margin-top: 8px;
+    transition: background .18s;
+  }
+  .whatsapp-btn:hover { background: #128C7E; }
+
+  /* ── Export btn ── */
+  .btn-export {
+    padding: 10px 18px; background: #1D4ED8; color: white;
+    border: none; border-radius: 10px; font-family: 'Syne'; font-size: 13px;
+    font-weight: 700; cursor: pointer; display: inline-flex; align-items: center;
+    gap: 7px; transition: background .18s;
+  }
+  .btn-export:hover { background: #1E40AF; }
+
+  /* ── Notification badge ── */
+  .nav-badge {
+    background: var(--red); color: white; font-size: 10px; font-weight: 800;
+    padding: 2px 6px; border-radius: 20px; margin-left: auto;
+  }
+
+  /* ── Connection status indicator ── */
+  #conn-bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 99997;
+    padding: 9px 20px; font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; gap: 10px;
+    transform: translateY(-100%); transition: transform .4s cubic-bezier(.34,1.56,.64,1);
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  #conn-bar.show { transform: translateY(0); }
+  #conn-bar.offline { background: #FEF2F2; border-bottom: 2px solid #FCA5A5; color: #7F1D1D; }
+  #conn-bar.online  { background: #ECFDF5; border-bottom: 2px solid #6EE7B7; color: #065F46; }
+  .conn-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    animation: connPulse 1.5s ease-in-out infinite;
+  }
+  .conn-dot.red  { background: #EF4444; }
+  .conn-dot.green { background: #10B981; animation: none; }
+  @keyframes connPulse { 0%,100%{opacity:1;}50%{opacity:.3;} }
+  
+  /* ── Sync indicator in sidebar ── */
+  .sync-badge {
+    font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .sync-badge.online  { background: rgba(16,185,129,.2); color: #6EE7B7; }
+  .sync-badge.offline { background: rgba(239,68,68,.2);  color: #FCA5A5; animation: connPulse 1.5s ease-in-out infinite; }
+  .sync-badge.syncing { background: rgba(245,158,11,.2); color: #FCD34D; animation: connPulse .8s ease-in-out infinite; }
+    font-size: 13px; opacity: .85; font-family: 'Syne'; letter-spacing: .5px;
+  }
+
+  /* ── Summary bar ── */
+  .summary-bar {
+    background: linear-gradient(135deg, var(--brown), var(--gold));
+    border-radius: 12px; padding: 16px 20px; color: white; margin-bottom: 24px;
+    display: flex; gap: 20px; flex-wrap: wrap; align-items: center;
+  }
+  .summary-item { display: flex; flex-direction: column; gap: 2px; }
+  .summary-item-label { font-size: 10px; opacity: .75; text-transform: uppercase; letter-spacing: .5px; }
+  .summary-item-val { font-family: 'Syne'; font-size: 18px; font-weight: 800; }
+</style>
+</head>
+<body>
+<div id="conn-bar">
+  <div class="conn-dot" id="conn-dot"></div>
+  <span id="conn-msg">Vérification de la connexion...</span>
+</div>
+<div id="loading-screen">
+  <div class="loading-logo-wrap">🥖</div>
+  <div style="font-family:'Syne';font-size:22px;font-weight:800;letter-spacing:-0.5px;">Boulangerie Bamba</div>
+  <div style="font-size:13px;opacity:.7;margin-top:6px;">Chargement des données...</div>
+  <div class="loading-bar-wrap"><div class="loading-bar"></div></div>
+</div>
+<div id="toast-container"></div>
+<div id="root"></div>
+
+<script type="module">
+// ════════════════════════════════════════════
+// ☁️  FIREBASE REALTIME DATABASE
+// ════════════════════════════════════════════
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+const PAIN_PRIX = 130;        // FCFA par pain (boutiques)
+const PAIN_PRIX_DETAIL = 150; // FCFA par pain (vente en route/détail)
+
+function generateDemoLivraisons() {
+  const livs = [];
+  const now = Date.now();
+  const data = [
+    { livreur:'ousmane', client:'Boutique Chez Awa',    clientId:'c1', matin:60, soir:40, restant:8,  daysAgo:0 },
+    { livreur:'ousmane', client:'Épicerie Centrale',    clientId:'c2', matin:80, soir:50, restant:12.5, daysAgo:0 },
+    { livreur:'fatou',   client:'Superette Fama',       clientId:'c4', matin:70, soir:30, restant:5,  daysAgo:1 },
+    { livreur:'ousmane', client:'Boulangerie du Coin',  clientId:'c3', matin:50, soir:20, restant:3,  daysAgo:1 },
+    { livreur:'fatou',   client:'Mini-marché Oumar',    clientId:'c5', matin:40, soir:30, restant:6.5,  daysAgo:2 },
+  ];
+  data.forEach((d,i) => {
+    const vendu = d.matin + d.soir - d.restant;
+    const montant = vendu * PAIN_PRIX;
+    const date = new Date(now - d.daysAgo*86400000 - (i%3)*3600000);
+    livs.push({
+      id:'liv_'+i, livreur:d.livreur, client:d.client, clientId:d.clientId,
+      matin:d.matin, soir:d.soir, restant:d.restant, vendu,
+      montant: montant, paye: montant, date: date.toISOString(),
+      statut: 'terminee'
+    });
+  });
+  return livs;
+}
+
+function generateDemoDepenses() {
+    const now = Date.now();
+    return [
+        { id: 'dep_1', date: new Date(now - 86400000*2).toISOString(), categorie: 'Farine', montant: 45000, description: '3 sacs de farine 50kg' },
+        { id: 'dep_2', date: new Date(now - 86400000*5).toISOString(), categorie: 'Électricité / Eau', montant: 15000, description: 'Recharge Woyofal' },
+        { id: 'dep_3', date: new Date(now - 86400000*1).toISOString(), categorie: 'Bois / Gaz', montant: 8000, description: 'Bouteille de gaz' }
+    ];
+}
+
+const defaultDB = {
+  settings: {
+    nom: 'Boulangerie Bamba',
+    logo: '🥖',
+    isImage: false,
+    lang: 'fr' 
+  },
+  inventaire: {
+    farine: { nom: 'Farine (Sacs de 50kg)', stock: 12, seuil: 5, rendement: 250 }
+  },
+  users: {
+    admin:   { role:'admin',   nom:'Administrateur', password:'1234', createdAt:'2024-01-01T00:00:00Z' },
+    ousmane: { role:'livreur', nom:'Ousmane Diallo',  password:'1234', createdAt:'2024-03-10T00:00:00Z' },
+    fatou:   { role:'livreur', nom:'Fatou Ndiaye',    password:'1234', createdAt:'2024-04-01T00:00:00Z' }
+  },
+  livreurs: {
+    ousmane: { clients:['c1','c2','c3'] },
+    fatou:   { clients:['c4','c5'] }
+  },
+  clients: {
+    c1:{ nom:'Boutique Chez Awa',  adresse:'Marché HLM, Dakar', telephone:'77 123 45 67', creance:0,  createdAt:'2024-03-12T00:00:00Z' },
+    c2:{ nom:'Épicerie Centrale',  adresse:'Plateau, Dakar',     telephone:'76 987 65 43', creance:650, createdAt:'2024-03-15T00:00:00Z' },
+    c3:{ nom:'Boulangerie du Coin', adresse:'Yoff, Dakar',       telephone:'78 456 78 90', creance:0,  createdAt:'2024-04-02T00:00:00Z' },
+    c4:{ nom:'Superette Fama',     adresse:'Pikine, Dakar',      telephone:'70 111 22 33', creance:1300, createdAt:'2024-04-05T00:00:00Z' },
+    c5:{ nom:'Mini-marché Oumar',  adresse:'Parcelles, Dakar',   telephone:'77 555 44 33', creance:0,  createdAt:'2024-04-10T00:00:00Z' }
+  },
+  stocks: [],
+  livraisons: generateDemoLivraisons(),
+  depenses: generateDemoDepenses()
+};
+
+// 🔴 REMPLACE CE BLOC PAR TA CONFIGURATION FIREBASE
+const firebaseConfig = {
+  apiKey: "AIzaSyBMfLFWaXkqZRwdVTh7IGUVNiEPDXLWUKU",
+  authDomain: "boulangerie1bamba.firebaseapp.com",
+  databaseURL: "https://boulangerie1bamba-default-rtdb.firebaseio.com/",
+  projectId: "TON_PROJET",
+  storageBucket: "TON_PROJET.appspot.com",
+  messagingSenderId: "TON_ID",
+  appId: "TON_APP_ID"
+};
+
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+const dbRef = ref(database, 'boulangerie_db');
+
+let db = defaultDB;
+window.isAppInitialized = false;
+let isOnline = navigator.onLine;
+let pendingSync = false;
+
+// ════════════════════════════════════════════
+// 💾  INDEXEDDB — STOCKAGE LOCAL HORS-LIGNE
+// ════════════════════════════════════════════
+const IDB_NAME = 'BoulangerieBamba_Offline';
+const IDB_STORE = 'db_store';
+
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+async function idbSave(data) {
+  try {
+    const idb = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      store.put(JSON.parse(JSON.stringify(data)), 'main');
+      store.put(new Date().toISOString(), 'lastSave');
+      tx.oncomplete = resolve;
+      tx.onerror = e => reject(e.target.error);
+    });
+  } catch(e) {
+    console.error('IndexedDB save error:', e);
+  }
+}
+
+async function idbLoad() {
+  try {
+    const idb = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get('main');
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror = e => reject(e.target.error);
+    });
+  } catch(e) {
+    console.error('IndexedDB load error:', e);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════
+// 🌐  DÉTECTION DE CONNEXION EN TEMPS RÉEL
+// ════════════════════════════════════════════
+function setConnectionUI(online, syncing = false) {
+  isOnline = online;
+  const bar = document.getElementById('conn-bar');
+  const dot = document.getElementById('conn-dot');
+  const msg = document.getElementById('conn-msg');
+  if(!bar) return;
+
+  if(syncing) {
+    bar.className = 'conn-bar show online';
+    bar.style.cssText = 'background:#FFFBEB;border-bottom:2px solid #FCD34D;color:#78350F;';
+    if(dot) { dot.className = 'conn-dot'; dot.style.background = '#F59E0B'; }
+    if(msg) msg.textContent = '⏳ Synchronisation en cours avec le cloud...';
+    bar.classList.add('show');
+    return;
+  }
+
+  if(online) {
+    bar.className = 'conn-bar show online';
+    if(dot) { dot.className = 'conn-dot green'; dot.style.background = '#10B981'; }
+    if(msg) msg.textContent = '🟢 Connecté — Données synchronisées avec le cloud';
+    bar.classList.add('show');
+    setTimeout(() => bar.classList.remove('show'), 4000);
+  } else {
+    bar.className = 'conn-bar show offline';
+    if(dot) { dot.className = 'conn-dot red'; dot.style.background = '#EF4444'; }
+    if(msg) msg.textContent = '🔴 Hors ligne — Vos données sont sauvegardées localement';
+    bar.classList.add('show');
+  }
+
+  // Update sync badge in sidebar
+  updateSyncBadge(online);
+}
+
+function updateSyncBadge(online) {
+  const badge = document.getElementById('sync-status-badge');
+  if(!badge) return;
+  if(online) {
+    badge.className = 'sync-badge online';
+    badge.innerHTML = '🟢 En ligne';
+  } else {
+    badge.className = 'sync-badge offline';
+    badge.innerHTML = '🔴 Hors ligne';
+  }
+}
+
+// Firebase .info/connected — détection RÉELLE de la connexion Firebase
+const connectedRef = ref(database, '.info/connected');
+let prevConnected = null;
+
+onValue(connectedRef, async (snap) => {
+  const connected = snap.val() === true;
+  
+  if(connected === prevConnected) return;
+  
+  if(connected && prevConnected === false) {
+    // Reconnexion détectée !
+    setConnectionUI(true, true);
+    pendingSync = true;
+    
+    try {
+      // Envoyer les données locales vers Firebase (elles peuvent être plus récentes)
+      await set(dbRef, db);
+      pendingSync = false;
+      setConnectionUI(true, false);
+      showToast('✅ Synchronisation terminée ! Toutes vos données sont à jour.', 'success', 5000);
+    } catch(e) {
+      pendingSync = false;
+      setConnectionUI(true, false);
+    }
+  } else if(!connected && prevConnected !== false) {
+    // Déconnexion détectée
+    setConnectionUI(false);
+    showToast('📴 Mode hors-ligne activé. Continuez à travailler normalement !', 'warning', 6000);
+  } else if(connected && prevConnected === null) {
+    // Premier chargement connecté
+    setConnectionUI(true, false);
+  }
+  
+  prevConnected = connected;
+});
+
+// ════════════════════════════════════════════
+// 📡  FIREBASE DONNÉES — avec fallback IndexedDB
+// ════════════════════════════════════════════
+
+// Timeout : si Firebase ne répond pas en 5s, utiliser le cache local
+let firebaseDataReceived = false;
+const firebaseTimeout = setTimeout(async () => {
+  if(!firebaseDataReceived) {
+    console.log('Firebase timeout — chargement depuis le cache local...');
+    const cached = await idbLoad();
+    if(cached) {
+      db = cached;
+      normalizeDB();
+      showToast('📱 Données chargées depuis le cache local (hors ligne)', 'warning', 5000);
+    }
+    if(!window.isAppInitialized) {
+      render();
+      window.isAppInitialized = true;
+    }
+  }
+}, 5000);
+
+onValue(dbRef, async (snapshot) => {
+  firebaseDataReceived = true;
+  clearTimeout(firebaseTimeout);
+  
+  const data = snapshot.val();
+  if (data) {
+    db = data;
+    normalizeDB();
+    // Mettre à jour le cache local
+    await idbSave(db);
+  } else {
+    // Vérifier si on a un cache local
+    const cached = await idbLoad();
+    if(cached) {
+      db = cached;
+      normalizeDB();
+    } else {
+      db = defaultDB;
+    }
+    saveDB();
+  }
+
+  if (window.isAppInitialized) {
+    render();
+  }
+});
+
+function normalizeDB() {
+  if (!db.settings)   db.settings   = defaultDB.settings;
+  if (!db.settings.lang) db.settings.lang = 'fr';
+  if (!db.inventaire) db.inventaire = defaultDB.inventaire;
+  if (!db.stocks)     db.stocks     = [];
+  if (!db.depenses)   db.depenses   = [];
+  if (!db.clients)    db.clients    = {};
+  if (!db.livraisons) db.livraisons = [];
+  if (!db.livreurs)   db.livreurs   = {};
+  if (!db.users)      db.users      = defaultDB.users;
+}
+
+// ════════════════════════════════════════════
+// 💾  SAUVEGARDE — Local + Cloud
+// ════════════════════════════════════════════
+function saveDB() {
+  // 1. Toujours sauvegarder localement en premier (instantané)
+  idbSave(db).catch(e => console.error('Local save error:', e));
+
+  // 2. Envoyer vers Firebase si connecté
+  if(isOnline) {
+    set(dbRef, db).catch(error => {
+      console.error("Erreur Firebase :", error);
+      showToast("Sauvegardé localement — sera synchronisé à la reconnexion", "warning");
+    });
+  }
+  // Si hors ligne : la donnée est dans IndexedDB, sera sync à la reconnexion
+}
+
+// ════════════════════════════════════════════
+// 🌐  TRADUCTIONS (i18n)
+// ════════════════════════════════════════════
+const dict = {
+  "Vue d'ensemble": "نظرة عامة",
+  "Livreurs": "عمال التوصيل",
+  "Clients": "العملاء",
+  "Tournées": "الجولات",
+  "Rapports": "التقارير",
+  "Dépenses": "النفقات",
+  "Inventaire": "المخزون",
+  "Paramètres": "الإعدادات",
+  "Espace Administrateur": "مساحة المسؤول",
+  "Connecté en tant que": "مسجل الدخول كـ",
+  "Déconnexion": "تسجيل الخروج",
+  "Tableau de bord": "لوحة القيادة",
+  "Assistant IA Bamba": "مساعد الذكاء الاصطناعي",
+  "Écouter le résumé": "استمع إلى الملخص",
+  "Stocks globaux sortis aujourd'hui": "الأسهم العالمية الصادرة اليوم",
+  "Ventes du mois": "مبيعات الشهر",
+  "Dépenses du mois": "نفقات الشهر",
+  "Bénéfice Net": "صافي الربح",
+  "Sortis aujourd'hui": "خرج اليوم",
+  "Vendus aujourd'hui": "مبيعات اليوم",
+  "Invendus aujourd'hui": "غير المباع اليوم",
+  "Clients actifs": "العملاء النشطون",
+  "Créances totales": "إجمالي الديون",
+  "Ventes 7 derniers jours": "مبيعات آخر 7 أيام",
+  "Performance par livreur": "أداء عمال التوصيل",
+  "Dernière activité (Tournées clients)": "النشاط الأخير (جولات العملاء)",
+  "Paramètres de l'entreprise": "إعدادات الشركة",
+  "Nom de l'entreprise": "اسم الشركة",
+  "Logo (Image)": "شعار (صورة)",
+  "Ou utiliser un simple texte/émoji :": "أو استخدم نص/رمز تعبيري:",
+  "Langue du système": "لغة النظام",
+  "Enregistrer les modifications": "حفظ التغييرات",
+  "Gestion des Livreurs": "إدارة عمال التوصيل",
+  "Nouveau Livreur": "عامل توصيل جديد",
+  "Clients & Boutiques": "العملاء والمتاجر",
+  "Historique des Tournées Clients": "تاريخ جولات العملاء",
+  "Rapports & Analyses": "التقارير والتحليلات",
+  "Gestion Pro": "الإدارة الاحترافية",
+  "Gestion des Dépenses": "إدارة النفقات",
+  "Ajouter une dépense": "إضافة نفقة"
+};
+
+function t(frStr) {
+  if (db.settings && db.settings.lang === 'ar' && dict[frStr]) return dict[frStr];
+  return frStr;
+}
+
+// ════════════════════════════════════════════
+// 🧮  UTILITAIRES
+// ════════════════════════════════════════════
+function fcfa(n){ return new Intl.NumberFormat('fr-FR').format(n)+' FCFA'; }
+function fdate(s){ return new Date(s).toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}); }
+function fdatetime(s){ return new Date(s).toLocaleString('fr-FR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function uid(){ return '_'+(Date.now())+'_'+Math.random().toString(36).slice(2,7); }
+
+function isToday(dateString) {
+  if(!dateString) return false;
+  const d = new Date(dateString);
+  const t = new Date();
+  return d.getDate() === t.getDate() && d.getMonth() === t.getMonth() && d.getFullYear() === t.getFullYear();
+}
+
+function renderLogo() {
+  if (db.settings.isImage && db.settings.logo) {
+    return `<img src="${db.settings.logo}" alt="Logo" />`;
+  }
+  return db.settings.logo;
+}
+
+// ════════════════════════════════════════════
+// 🎭  STATE & RENDER ENGINE
+// ════════════════════════════════════════════
+let state = {
+  view: 'login',          
+  user: null,
+  adminTab: 'overview',
+  modal: null,            
+  periode: "aujourd'hui",
+  loginError: '',
+  // form fields
+  fNom:'', fUsername:'', fPassword:'',
+  fClientNom:'', fClientAdresse:'', fClientTel:'',
+  activeClient: null,
+  activeLiv: null
+};
+
+function setState(patch){ 
+  Object.assign(state, patch); 
+  render(); 
+}
+
+function render(){ 
+  document.documentElement.lang = (db.settings && db.settings.lang) || 'fr';
+  document.documentElement.dir = (db.settings && db.settings.lang === 'ar') ? 'rtl' : 'ltr';
+
+  // Update loading screen logo
+  const ls = document.getElementById('loading-screen');
+  if(ls && !ls.classList.contains('hidden')) {
+    const lsName = ls.querySelector('div:nth-child(2)');
+    if(lsName) lsName.textContent = db.settings.nom || 'Boulangerie Bamba';
+    ls.classList.add('hidden');
+    setTimeout(()=>{ if(ls.parentNode) ls.remove(); }, 600);
+  }
+
+  document.getElementById('root').innerHTML = buildApp(); 
+  document.title = `${db.settings.nom} – ${t('Gestion Pro')}`;
+  bindEvents(); 
+  startClock();
+}
+
+// ═══════════════════════════════════════════
+// 🔔  TOAST SYSTEM
+// ═══════════════════════════════════════════
+function showToast(msg, type='success', duration=3500) {
+  const icons = { success:'✅', error:'❌', info:'ℹ️', warning:'⚠️' };
+  const container = document.getElementById('toast-container');
+  if(!container) return;
+  const t2 = document.createElement('div');
+  t2.className = `toast ${type}`;
+  t2.innerHTML = `<span class="toast-icon">${icons[type]}</span><span>${msg}</span>`;
+  t2.onclick = () => removeToast(t2);
+  container.appendChild(t2);
+  setTimeout(() => removeToast(t2), duration);
+}
+function removeToast(el) {
+  el.classList.add('hide');
+  setTimeout(() => el.remove(), 350);
+}
+
+// ═══════════════════════════════════════════
+// ⏰  REAL-TIME CLOCK
+// ═══════════════════════════════════════════
+let clockInterval = null;
+function startClock() {
+  if(clockInterval) clearInterval(clockInterval);
+  const el = document.getElementById('live-clock');
+  if(!el) return;
+  const tick = () => {
+    el.textContent = new Date().toLocaleString('fr-FR', {
+      weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+    });
+  };
+  tick();
+  clockInterval = setInterval(tick, 30000);
+}
+
+// ════════════════════════════════════════════
+// 🔐  LOGIN
+// ════════════════════════════════════════════
+function buildLogin(){
+  return `
+  <div class="login-wrap">
+    <div class="login-card fade-in">
+      <div class="login-logo">
+        <div class="login-emoji">${renderLogo()}</div>
+        <h1>${escHTML(db.settings.nom)}</h1>
+        <p>Système de Gestion Professionnelle</p>
+      </div>
+      ${state.loginError ? `<div class="alert-error">⚠️ ${state.loginError}</div>` : ''}
+      <div class="form-group">
+        <label class="form-label">Nom d'utilisateur</label>
+        <input id="inp-user" class="form-input" type="text" value="${escHTML(state.fUsername)}" placeholder="admin ou nom livreur"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mot de passe</label>
+        <input id="inp-pass" class="form-input" type="password" value="${escHTML(state.fPassword)}" placeholder="••••••••"/>
+      </div>
+      <button class="btn-primary" id="btn-login" style="width:100%;justify-content:center;padding:14px;font-size:15px;">Se Connecter</button>
+      <div class="demo-hint">
+        <strong>Comptes disponibles :</strong>
+        👤 <b>admin</b> / 🔑 1234 &nbsp;|&nbsp; 👤 <b>ousmane</b> / 🔑 1234 &nbsp;|&nbsp; 👤 <b>fatou</b> / 🔑 1234
+      </div>
+    </div>
+  </div>`;
+}
+
+function doLogin(){
+  const u = document.getElementById('inp-user').value.toLowerCase().trim();
+  const p = document.getElementById('inp-pass').value;
+  const user = db.users[u];
+  if(user && user.password === p){
+    setState({ user:{username:u,...user}, fUsername:u, fPassword:'', loginError:'',
+      view: user.role==='admin'?'admin':'livreur',
+      adminTab:'overview' });
+  } else {
+    setState({ loginError:'Identifiants incorrects', fUsername:u });
+  }
+}
+
+// ════════════════════════════════════════════
+// 📊  CALCULS
+// ════════════════════════════════════════════
+function calcAdminStats(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  let ventesMonth=0, painsToday=0, creances=0, retoursToday=0;
+  let totalSortisToday = 0;
+  let depensesMonth = 0;
+  const week=[];
+  
+  for(let i=6;i>=0;i--){
+    const d=new Date(today - i*86400000);
+    week.push({jour:d.toLocaleDateString('fr-FR',{weekday:'short'}),montant:0,pains:0});
+  }
+  const perfLiv={};
+  const recents=[];
+
+  db.livraisons.forEach(liv=>{
+    recents.push(liv);
+    if(liv.statut === 'en_cours') return;
+
+    const ld=new Date(liv.date); ld.setHours(0,0,0,0);
+    if(ld>=monthStart) ventesMonth+=liv.montant;
+    if(ld.getTime()===today.getTime()) {
+        painsToday+=liv.vendu;
+        retoursToday+=liv.restant;
+    }
+    const diff=Math.round((today-ld)/86400000);
+    if(diff>=0&&diff<7){ week[6-diff].montant+=liv.montant; week[6-diff].pains+=liv.vendu; }
+    if(!perfLiv[liv.livreur]) perfLiv[liv.livreur]={nom:liv.livreur,ventes:0};
+    perfLiv[liv.livreur].ventes+=liv.montant;
+  });
+
+  db.stocks.forEach(s => {
+    if(isToday(s.date)) totalSortisToday += s.quantite;
+  });
+
+  (db.depenses || []).forEach(d => {
+      const ld = new Date(d.date); ld.setHours(0,0,0,0);
+      if(ld >= monthStart) depensesMonth += Number(d.montant);
+  });
+
+  Object.values(db.clients).forEach(c=>{ creances+=c.creance||0; });
+
+  const beneficeMonth = ventesMonth - depensesMonth;
+
+  return {
+    ventesMonth, depensesMonth, beneficeMonth, painsToday, creances, retoursToday, totalSortisToday,
+    clientsActifs: Object.keys(db.clients).length,
+    week, perfLiv: Object.values(perfLiv),
+    recents: recents.sort((a,b)=>new Date(b.date)-new Date(a.date))
+  };
+}
+
+function calcLivreurStats(username){
+  let stockAuj = 0;
+  let caAuj = 0;
+  let livsMois = 0;
+  let caMois = 0;
+  
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+  db.stocks.forEach(s => {
+    if(s.livreur === username && isToday(s.date)) stockAuj += s.quantite;
+  });
+
+  db.livraisons.forEach(l => {
+    if(l.livreur === username && l.statut === 'terminee'){ 
+      if(new Date(l.date) >= monthStart){ livsMois++; caMois+=l.montant; }
+      if(isToday(l.date)){ caAuj += l.montant; }
+    }
+  });
+  return { livsMois, caMois, stockAuj, caAuj };
+}
+
+function calcRapport(periode){
+  let start;
+  const today=new Date(); today.setHours(0,0,0,0);
+  if(periode==="aujourd'hui") start=today;
+  else if(periode==='semaine') start=new Date(today-7*86400000);
+  else if(periode==='mois') start=new Date(today.getFullYear(),today.getMonth(),1);
+  else start=new Date(0);
+  
+  let tL=0,tV=0,tR=0,tCA=0; const pl={};
+  db.livraisons.forEach(liv=>{
+    if(new Date(liv.date)<start || liv.statut === 'en_cours') return;
+    const l=liv.matin+liv.soir;
+    tL+=l; tV+=liv.vendu; tR+=liv.restant; tCA+=liv.montant;
+    if(!pl[liv.livreur]) pl[liv.livreur]={livreur:liv.livreur,nb:0,l:0,v:0,ca:0};
+    pl[liv.livreur].nb++; pl[liv.livreur].l+=l;
+    pl[liv.livreur].v+=liv.vendu; pl[liv.livreur].ca+=liv.montant;
+  });
+  return { tL,tV,tR,tCA, pl:Object.values(pl).map(x=>({...x,taux:x.l>0?(x.v/x.l*100):0})) };
+}
+
+// ════════════════════════════════════════════
+// 📈  CHARTS
+// ════════════════════════════════════════════
+function buildBarChart(data, key='montant'){
+  if(!data.length) return '<div class="empty"><div class="empty-icon">📊</div><p>Pas de données</p></div>';
+  const max=Math.max(...data.map(d=>d[key]),1);
+  return `<div class="bar-chart">
+    ${data.map(d=>`
+    <div class="bar-item">
+      <div class="bar-fill" style="height:${Math.max(4,Math.round((d[key]/max)*160))}px" title="${fcfa(d[key])}"></div>
+      <div class="bar-label">${d.jour||d.nom||''}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function buildLineChart(data, key='montant'){
+  if(!data.length) return '';
+  const W=500,H=160,pad=10;
+  const max=Math.max(...data.map(d=>d[key]),1);
+  const pts=data.map((d,i)=>{
+    const x=pad+(i/(data.length-1||1))*(W-pad*2);
+    const y=H-pad-(d[key]/max)*(H-pad*2);
+    return {x,y,v:d[key]};
+  });
+  const path='M'+pts.map(p=>`${p.x},${p.y}`).join(' L');
+  const area=path+` L${pts[pts.length-1].x},${H} L${pts[0].x},${H} Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:180px;">
+    <defs>
+      <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${'#F59E0B'}" stop-opacity=".3"/>
+        <stop offset="100%" stop-color="${'#F59E0B'}" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="${area}" fill="url(#lg)"/>
+    <path d="${path}" fill="none" stroke="#D97706" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${pts.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="4" fill="#D97706" stroke="#fff" stroke-width="2"/>`).join('')}
+  </svg>`;
+}
+
+// ════════════════════════════════════════════
+// 🏢  ADMIN DASHBOARD
+// ════════════════════════════════════════════
+function buildAdmin(){
+  const tabs=[
+    {id:'overview',  icon:'📊', label: t("Vue d'ensemble")},
+    {id:'livreurs',  icon:'🚚', label: t('Livreurs')},
+    {id:'clients',   icon:'👥', label: t('Clients')},
+    {id:'livraisons',icon:'📦', label: t('Tournées')},
+    {id:'depenses',  icon:'💸', label: t('Dépenses')},
+    {id:'inventaire',icon:'🌾', label: t('Inventaire')},
+    {id:'rapports',  icon:'📄', label: t('Rapports')},
+    {id:'settings',  icon:'⚙️', label: t('Paramètres')},
+  ];
+  
+  // Badges d'alertes
+  const far = db.inventaire?.farine;
+  const stockAlert = far && far.stock <= far.seuil;
+  const creancesTotal = Object.values(db.clients).reduce((a,c)=>a+(c.creance||0),0);
+  const creanceAlert = creancesTotal > 0;
+  
+  const badgeMap = {
+    inventaire: stockAlert ? '!' : null,
+    clients: creanceAlert ? Object.values(db.clients).filter(c=>c.creance>0).length : null,
+  };
+
+  const sidebar=`
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <span>${renderLogo()}</span>
+      <h2>${escHTML(db.settings.nom)}</h2>
+      <p>${t('Espace Administrateur')}</p>
+    </div>
+    <nav>
+      ${tabs.map(tb=>`
+      <button class="nav-btn${state.adminTab===tb.id?' active':''}" data-tab="${tb.id}">
+        <span class="nav-icon">${tb.icon}</span>${tb.label}
+        ${badgeMap[tb.id] ? `<span class="nav-badge">${badgeMap[tb.id]}</span>` : ''}
+      </button>`).join('')}
+    </nav>
+    <div class="sidebar-footer">
+      <div style="font-size:11px;opacity:.6;margin-bottom:8px;padding:0 4px;" id="live-clock"></div>
+      <div style="margin-bottom:10px;">
+        <span id="sync-status-badge" class="sync-badge ${isOnline ? 'online' : 'offline'}">${isOnline ? '🟢 En ligne' : '🔴 Hors ligne'}</span>
+      </div>
+      <div class="user-badge">
+        <span style="font-size:11px;opacity:.7;">${t('Connecté en tant que')}</span>
+        <strong>${state.user.nom}</strong>
+      </div>
+      <button class="btn-logout" id="btn-logout">${t('Déconnexion')}</button>
+    </div>
+  </div>`;
+
+  let content='';
+  if(state.adminTab==='overview')   content=buildOverview();
+  if(state.adminTab==='livreurs')   content=buildLivreurs();
+  if(state.adminTab==='clients')    content=buildClientsTab();
+  if(state.adminTab==='livraisons') content=buildLivraisonsTab();
+  if(state.adminTab==='depenses')   content=buildDepensesTab();
+  if(state.adminTab==='inventaire') content=buildInventaireTab();
+  if(state.adminTab==='rapports')   content=buildRapports();
+  if(state.adminTab==='settings')   content=buildSettings();
+
+  return `${sidebar}<div class="main fade-in">${content}</div>${buildModal()}${buildMobileNav(tabs, badgeMap)}`;
+}
+
+function buildMobileNav(tabs, badgeMap) {
+  const mainTabs = tabs.slice(0, 5); // show first 5
+  return `<nav class="mobile-nav">
+    <div class="mobile-nav-inner">
+      ${mainTabs.map(tb=>`
+      <button class="mobile-nav-btn${state.adminTab===tb.id?' active':''}" data-tab="${tb.id}">
+        <span class="mnav-icon">${tb.icon}</span>
+        <span>${tb.label}</span>
+      </button>`).join('')}
+    </div>
+  </nav>`;
+}
+
+// ── Overview ──
+function buildOverview(){
+  const s=calcAdminStats();
+  
+  const stocksAuj = db.stocks.filter(stk => isToday(stk.date));
+  let stockHtml = '';
+  if(stocksAuj.length > 0) {
+    const recap = {};
+    stocksAuj.forEach(stk => {
+      if(!recap[stk.livreur]) recap[stk.livreur] = 0;
+      recap[stk.livreur] += stk.quantite;
+    });
+    stockHtml = `
+    <div class="card" style="margin-bottom:24px; border:2px solid var(--gold); background:#FFFBF0;">
+      <div class="card-title" style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+        <span>🥖 ${t("Stocks globaux sortis aujourd'hui")}</span>
+        <span style="background:var(--gold); color:#fff; padding:4px 12px; border-radius:20px; font-size:16px;">Total : ${s.totalSortisToday}</span>
+      </div>
+      <div style="display:flex; gap:20px; flex-wrap:wrap;">
+        ${Object.entries(recap).map(([liv, qte]) => `
+          <div style="background:var(--white); padding:10px 16px; border-radius:10px; border:1px solid var(--border);">
+            <strong style="text-transform:capitalize;">${liv}</strong> : <span style="color:var(--gold); font-weight:bold;">${qte}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Alerte Stock Farine
+  let alertHTML = '';
+  let far = db.inventaire?.farine;
+  if (far && far.stock <= far.seuil) {
+    alertHTML = `
+    <div class="alert-error" style="background:#FEF2F2; border:2px solid #F87171; color:#991B1B; padding:16px; border-radius:12px; margin-bottom:24px; display:flex; align-items:center; gap:16px; box-shadow: 0 4px 12px rgba(248, 113, 113, 0.15);">
+        <span style="font-size:32px;">⚠️</span>
+        <div>
+            <div style="font-size:16px; font-weight:800; margin-bottom:4px; font-family:'Syne';">Alerte Stock Critique !</div>
+            Il ne reste que <strong>${far.stock.toFixed(1)} sacs de farine</strong> en réserve (Seuil défini à ${far.seuil}). Pensez à approvisionner.
+        </div>
+    </div>`;
+  }
+
+  const bestLiv = s.perfLiv.sort((a,b) => b.ventes - a.ventes)[0];
+  let iaText = `Bonjour Administrateur. Voici le point de la situation. Aujourd'hui, ${s.totalSortisToday} pains ont été sortis au total. Vos livreurs ont vendu ${s.painsToday} pains, avec ${s.retoursToday} retours enregistrés. Pour ce mois, le chiffre d'affaires s'élève à ${s.ventesMonth} francs CFA, et les dépenses sont de ${s.depensesMonth} francs CFA, ce qui donne un bénéfice net de ${s.beneficeMonth} francs CFA. Attention, les dettes clients atteignent ${s.creances} francs CFA.`;
+  if (far && far.stock <= far.seuil) {
+      iaText += ` Attention, alerte critique : il ne reste que ${far.stock.toFixed(1)} sacs de farine.`;
+  }
+  if (bestLiv) iaText += ` Félicitations à ${bestLiv.nom} qui réalise les meilleures ventes.`;
+  iaText += ` Excellente gestion à vous !`;
+
+  const tauxVente = s.totalSortisToday > 0 ? ((s.painsToday / s.totalSortisToday) * 100).toFixed(1) : '—';
+  const margeStr = s.ventesMonth > 0 ? ((s.beneficeMonth / s.ventesMonth) * 100).toFixed(1) : '0';
+
+  return `
+  <h1 class="page-title">${t("Tableau de bord")}</h1>
+  
+  ${alertHTML}
+
+  <div class="card" style="margin-bottom:28px; background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border: 2px solid var(--amber); box-shadow: 0 8px 20px rgba(245,158,11,.15);">
+    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; color: var(--brown);">
+      <span style="font-size:18px;">🤖 ${t("Assistant IA Bamba")}</span>
+      <button class="btn-primary" id="btn-play-ia" style="padding:8px 14px; font-size:13px; background:var(--gold); box-shadow:none;">🔊 ${t("Écouter le résumé")}</button>
+    </div>
+    <p id="ia-summary-text" style="font-size:15px; line-height:1.6; color:var(--dark); font-weight:500;">
+      ${iaText}
+    </p>
+  </div>
+
+  <div class="summary-bar" style="display:none;" id="mobile-summary">
+    <div class="summary-item"><span class="summary-item-label">CA Mois</span><span class="summary-item-val">${fcfa(s.ventesMonth)}</span></div>
+    <div class="summary-item"><span class="summary-item-label">Bénéfice</span><span class="summary-item-val">${fcfa(s.beneficeMonth)}</span></div>
+    <div class="summary-item"><span class="summary-item-label">Taux vente</span><span class="summary-item-val">${tauxVente}%</span></div>
+  </div>
+
+  ${stockHtml}
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FEF3C7;">💰</div>
+      <div class="kpi-label">${t('Ventes du mois')}</div>
+      <div class="kpi-value" style="color:var(--amber);">${fcfa(s.ventesMonth)}</div>
+      <div class="kpi-trend trend-up">📈 Marge nette : ${margeStr}%</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FEE2E2;">💸</div>
+      <div class="kpi-label">${t('Dépenses du mois')}</div>
+      <div class="kpi-value" style="color:var(--red);">${fcfa(s.depensesMonth)}</div>
+      <div class="kpi-trend trend-flat">📋 ${(db.depenses||[]).filter(d=>new Date(d.date)>=new Date(new Date().getFullYear(),new Date().getMonth(),1)).length} opérations</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:${s.beneficeMonth>=0?'#D1FAE5':'#FEE2E2'};">📈</div>
+      <div class="kpi-label">${t('Bénéfice Net')}</div>
+      <div class="kpi-value" style="color:${s.beneficeMonth>=0?'var(--green)':'var(--red)'};">${fcfa(s.beneficeMonth)}</div>
+      <div class="kpi-trend ${s.beneficeMonth>=0?'trend-up':'trend-down'}">${s.beneficeMonth>=0?'✅ Bénéficiaire':'❌ Déficitaire'}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FEF3C7;">📦</div>
+      <div class="kpi-label">${t("Sortis aujourd'hui")}</div>
+      <div class="kpi-value" style="color:var(--amber);">${s.totalSortisToday.toLocaleString()}</div>
+      <div class="kpi-trend trend-flat">🥖 Taux vente : ${tauxVente}%</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FDE68A;">🥖</div>
+      <div class="kpi-label">${t("Vendus aujourd'hui")}</div>
+      <div class="kpi-value" style="color:var(--gold);">${s.painsToday.toLocaleString()}</div>
+      <div class="kpi-trend trend-flat">↩️ Retours: ${s.retoursToday}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FEE2E2;">⚠️</div>
+      <div class="kpi-label">${t('Créances totales')}</div>
+      <div class="kpi-value" style="color:var(--red);">${fcfa(s.creances)}</div>
+      <div class="kpi-trend ${s.creances>0?'trend-down':'trend-up'}">${s.creances>0?'💳 À recouvrer':'✅ Aucune dette'}</div>
+    </div>
+  </div>
+  <div class="chart-grid">
+    <div class="card">
+      <div class="card-title">📈 ${t("Ventes 7 derniers jours")}</div>
+      ${buildLineChart(s.week)}
+      <div style="display:flex;justify-content:space-between;margin-top:6px;">
+        ${s.week.map(d=>`<span style="font-size:10px;color:var(--muted);font-weight:600;">${d.jour}</span>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">🏆 ${t("Performance par livreur")}</div>
+      ${buildBarChart(s.perfLiv,'ventes')}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">🕐 ${t("Dernière activité (Tournées clients)")}</div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Client</th><th>Livreur</th><th>Statut</th><th>Date</th><th class="right">Montant</th>
+      </tr></thead>
+      <tbody>
+        ${s.recents.slice(0,8).map(l=>`<tr>
+          <td><strong>${escHTML(l.client)}</strong></td>
+          <td><span class="badge" style="background:var(--bg);color:var(--gold);">${escHTML(l.livreur)}</span></td>
+          <td>${l.statut === 'en_cours' ? '<span class="badge" style="background:#FEF3C7;color:#D97706;">En cours</span>' : '<span class="badge" style="background:#F0FDF4;color:#059669;">Terminé</span>'}</td>
+          <td style="color:var(--muted);font-size:13px;">${fdatetime(l.date)}</td>
+          <td class="right"><strong style="color:var(--green);">${l.statut === 'en_cours' ? '-' : fcfa(l.montant)}</strong></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function kpi(icon,label,value,color){
+  return `<div class="kpi">
+    <div class="kpi-icon" style="background:${color}18;font-size:22px;">${icon}</div>
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value" style="color:${color};">${value}</div>
+  </div>`;
+}
+
+// ── Livreurs ──
+function buildLivreurs(){
+  const livs=Object.entries(db.users)
+    .filter(([,u])=>u.role==='livreur')
+    .map(([username,u])=>{
+      const st=calcLivreurStats(username);
+      const clients=(db.livreurs[username]?.clients||[]).length;
+      return {username,...u,clients,st};
+    });
+  return `
+  <div class="page-header">
+    <h1 class="page-title" style="margin:0;">${t("Gestion des Livreurs")}</h1>
+    <button class="btn-primary" id="btn-new-livreur">➕ ${t("Nouveau Livreur")}</button>
+  </div>
+  ${!livs.length?`<div class="empty"><div class="empty-icon">🚚</div><p>Aucun livreur enregistré</p></div>`:''}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px;">
+    ${livs.map(l=>`
+    <div class="livreur-card fade-in">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+        <div class="livreur-avatar">🚚</div>
+        <div>
+          <div style="font-size:17px;font-weight:700;">${escHTML(l.nom)}</div>
+          <div style="font-size:12px;color:var(--muted);">@${escHTML(l.username)}</div>
+        </div>
+      </div>
+      <div class="livreur-stats">
+        <div class="mini-stat">
+          <div class="mini-stat-label">Stock Pris (Auj.)</div>
+          <div class="mini-stat-value" style="color:var(--gold);">${l.st.stockAuj} <span style="font-size:12px;">pains</span></div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-stat-label">CA (Auj.)</div>
+          <div class="mini-stat-value" style="color:var(--green);">${fcfa(l.st.caAuj)}</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-stat-label">Clients</div>
+          <div class="mini-stat-value">${l.clients}</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-stat-label">CA du mois</div>
+          <div class="mini-stat-value" style="font-size:15px;">${fcfa(l.st.caMois)}</div>
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ── Clients admin ──
+function buildClientsTab(){
+  const all=[];
+  Object.entries(db.livreurs||{}).forEach(([livreur,data])=>{
+    (data.clients||[]).forEach(cid=>{
+      if(db.clients[cid]) all.push({...db.clients[cid],id:cid,livreur});
+    });
+  });
+  const totalCreances = all.reduce((a,c)=>a+(c.creance||0),0);
+  return `
+  <div class="page-header">
+    <h1 class="page-title" style="margin:0;">${t("Clients & Boutiques")}</h1>
+  </div>
+  <div class="kpi-grid" style="margin-bottom:20px;">
+    ${kpi('👥','Total clients',all.length.toString(),'var(--gold)')}
+    ${kpi('⚠️','Total créances',fcfa(totalCreances),'var(--red)')}
+    ${kpi('✅','Clients à jour',all.filter(c=>!c.creance||c.creance<=0).length.toString(),'var(--green)')}
+  </div>
+  <input class="search-bar" id="search-clients" placeholder="🔍 Rechercher un client par nom, adresse..." oninput="filterClients(this.value)"/>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="data-table" id="clients-table">
+      <thead><tr>
+        <th>Client</th><th>Livreur</th><th>Téléphone</th><th class="right">Créance</th>
+      </tr></thead>
+      <tbody>
+        ${!all.length?`<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--muted);">Aucun client enregistré</td></tr>`:''}
+        ${all.map(c=>`<tr class="client-row" data-search="${escHTML((c.nom+' '+(c.adresse||'')).toLowerCase())}">
+          <td>
+            <strong>${escHTML(c.nom)}</strong>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escHTML(c.adresse||'')}</div>
+          </td>
+          <td><span class="badge" style="background:var(--bg);color:var(--gold);">${escHTML(c.livreur)}</span></td>
+          <td>
+            <div style="color:var(--muted);">${escHTML(c.telephone||'Non renseigné')}</div>
+            ${c.telephone ? `<a class="whatsapp-btn" href="https://wa.me/${c.telephone.replace(/\D/g,'')}" target="_blank">💬 WhatsApp</a>` : ''}
+          </td>
+          <td class="right"><strong style="color:${c.creance>0?'var(--red)':c.creance<0?'var(--green)':'var(--muted)'};">${fcfa(c.creance||0)}</strong></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+window.filterClients = function(q) {
+  document.querySelectorAll('.client-row').forEach(row => {
+    row.style.display = row.dataset.search.includes(q.toLowerCase()) ? '' : 'none';
+  });
+};
+
+// ── Livraisons admin ──
+function buildLivraisonsTab(){
+  const livs=[...db.livraisons].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  return `
+  <h1 class="page-title">${t("Historique des Tournées Clients")}</h1>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="data-table">
+      <thead><tr>
+        <th>Client</th><th>Livreur</th><th>Statut</th><th>Déposés (M+S)</th><th>Retours</th><th>Vendus</th><th>Date</th><th class="right">Valeur & Paiement</th>
+      </tr></thead>
+      <tbody>
+        ${!livs.length?`<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">Aucune tournée</td></tr>`:''}
+        ${livs.map(l=>`<tr>
+          <td><strong>${escHTML(l.client)}</strong></td>
+          <td><span class="badge" style="background:var(--bg);color:var(--gold);">${escHTML(l.livreur)}</span></td>
+          <td>${l.statut === 'en_cours' ? '<span class="badge" style="background:#FEF3C7;color:#D97706;">En cours</span>' : '<span class="badge" style="background:#F0FDF4;color:#059669;">Clôturé</span>'}</td>
+          <td>${l.matin+l.soir}</td>
+          <td style="color:var(--muted);">${l.statut === 'en_cours' ? '-' : l.restant}</td>
+          <td style="color:var(--green);font-weight:600;">${l.statut === 'en_cours' ? '-' : l.vendu}</td>
+          <td style="color:var(--muted);font-size:13px;">${fdatetime(l.date)}</td>
+          <td class="right">
+            <strong style="color:var(--green);">${l.statut === 'en_cours' ? '-' : fcfa(l.montant)}</strong>
+            ${l.statut === 'terminee' && l.paye !== undefined && l.paye !== l.montant ? `<div style="font-size:11px;color:var(--red);margin-top:3px;font-weight:bold;">Encaissé: ${fcfa(l.paye)}</div>` : ''}
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ── Dépenses admin ──
+function buildDepensesTab(){
+  const depenses = (db.depenses||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const s = calcAdminStats();
+
+  return `
+  <div class="page-header">
+    <h1 class="page-title" style="margin:0;">${t("Gestion des Dépenses")}</h1>
+    <button class="btn-primary" id="btn-new-depense">➕ ${t("Ajouter une dépense")}</button>
+  </div>
+  <div class="kpi-grid">
+    ${kpi('💸', t('Dépenses du mois'), fcfa(s.depensesMonth), 'var(--red)')}
+    ${kpi('📈', t('Bénéfice Net'), fcfa(s.beneficeMonth), s.beneficeMonth >= 0 ? 'var(--green)' : 'var(--red)')}
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="data-table">
+      <thead><tr>
+        <th>Date</th><th>Catégorie</th><th>Description</th><th class="right">Montant</th>
+      </tr></thead>
+      <tbody>
+        ${!depenses.length?`<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--muted);">Aucune dépense enregistrée</td></tr>`:''}
+        ${depenses.map(d=>`<tr>
+          <td style="color:var(--muted);font-size:13px;">${fdate(d.date)}</td>
+          <td><span class="badge" style="background:var(--bg);color:var(--brown);">${escHTML(d.categorie)}</span></td>
+          <td>${escHTML(d.description||'-')}</td>
+          <td class="right"><strong style="color:var(--red);">${fcfa(d.montant)}</strong></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ── Inventaire Matières Premières ──
+function buildInventaireTab() {
+  const far = db.inventaire.farine;
+  const isAlert = far.stock <= far.seuil;
+
+  return `
+  <div class="page-header">
+      <h1 class="page-title" style="margin:0;">🌾 Gestion des Stocks (Matières)</h1>
+      <button class="btn-primary" id="btn-add-farine" style="background:var(--green); box-shadow: 0 4px 14px rgba(5,150,105,.3);">➕ Approvisionner</button>
+  </div>
+  
+  <div class="kpi-grid">
+      <div class="kpi" style="border-color:${isAlert ? 'var(--red)' : 'var(--border)'}; border-width: 2px;">
+          <div class="kpi-icon" style="background:${isAlert ? '#FEE2E2' : 'var(--bg)'}; font-size:24px;">🌾</div>
+          <div class="kpi-label" style="color:${isAlert ? 'var(--red)' : 'var(--muted)'};">Stock Farine (Sacs 50kg)</div>
+          <div class="kpi-value" style="color:${isAlert ? 'var(--red)' : 'var(--dark)'}; font-size:36px;">
+            ${far.stock.toFixed(2)}
+          </div>
+      </div>
+      <div class="kpi">
+          <div class="kpi-icon" style="background:var(--bg);">⚙️</div>
+          <div class="kpi-label">Rendement Théorique</div>
+          <div class="kpi-value" style="font-size:24px;">${far.rendement} <span style="font-size:14px;font-weight:normal;color:var(--muted);">pains / sac</span></div>
+      </div>
+      <div class="kpi">
+          <div class="kpi-icon" style="background:var(--bg);">⚠️</div>
+          <div class="kpi-label">Seuil d'alerte</div>
+          <div class="kpi-value" style="font-size:24px;">${far.seuil} <span style="font-size:14px;font-weight:normal;color:var(--muted);">sacs</span></div>
+      </div>
+  </div>
+  
+  <div class="card" style="border:2px dashed var(--gold); background:#FFFBF0;">
+      <div class="card-title">💡 Comment fonctionne l'inventaire théorique ?</div>
+      <p style="font-size:14.5px; color:var(--dark); line-height:1.7;">
+          Le système déduit <strong>automatiquement</strong> la farine consommée en fonction des stocks de pains déclarés pris par les livreurs, suivant le rendement configuré.<br><br>
+          <strong>Exemple :</strong> Avec un rendement de <strong>${far.rendement} pains</strong> par sac, si un livreur déclare avoir pris <strong>${far.rendement} pains</strong> pour sa tournée, le système va automatiquement déduire <strong>1 sac</strong> du stock ci-dessus.<br><br>
+          <em>Note : N'oubliez pas d'utiliser le bouton "Approvisionner" pour ajouter les nouveaux sacs au stock après un achat !</em>
+      </p>
+      <div style="margin-top: 20px; text-align: right;">
+        <button class="btn-secondary" id="btn-edit-config-inv" style="background:#fff; border:1px solid var(--border);">⚙️ Modifier les paramètres</button>
+      </div>
+  </div>`;
+}
+
+// ── Rapports ──
+function buildRapports(){
+  const r=calcRapport(state.periode);
+  const periodeOpts=["aujourd'hui",'semaine','mois','tout'];
+  const periodeLabel={"aujourd'hui":"Aujourd'hui",semaine:'Cette semaine',mois:'Ce mois',tout:"Tout l'historique"};
+  return `
+  <div class="page-header">
+    <h1 class="page-title" style="margin:0;">${t("Rapports & Analyses")}</h1>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <select class="periode-select" id="sel-periode">
+        ${periodeOpts.map(p=>`<option value="${p}"${state.periode===p?' selected':''}>${periodeLabel[p]}</option>`).join('')}
+      </select>
+      <button class="btn-export" id="btn-export-csv">📥 Export CSV</button>
+    </div>
+  </div>
+  <div class="kpi-grid">
+    ${kpi('📦','Pains déposés (Total)',r.tL.toLocaleString(),'var(--gold)')}
+    ${kpi('✅','Pains vendus',r.tV.toLocaleString(),'var(--green)')}
+    ${kpi('↩️','Retours',r.tR.toLocaleString(),'var(--yellow)')}
+    ${kpi('💰','Chiffre d\'affaires',fcfa(r.tCA),'var(--amber)')}
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:18px 20px 0;font-size:16px;font-weight:700;">📋 Détail par livreur (Tournées clôturées)</div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Livreur</th><th class="right">Clients visités</th><th class="right">Vendus</th>
+        <th class="right">CA généré</th><th class="right">Taux vente</th>
+      </tr></thead>
+      <tbody>
+        ${!r.pl.length?`<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--muted);">Aucune donnée pour cette période</td></tr>`:''}
+        ${r.pl.map(x=>`<tr>
+          <td><strong>${escHTML(x.livreur)}</strong></td>
+          <td class="right">${x.nb}</td>
+          <td class="right">${x.v.toLocaleString()}</td>
+          <td class="right"><strong style="color:var(--green);">${fcfa(x.ca)}</strong></td>
+          <td class="right"><strong style="color:${x.taux>90?'var(--green)':x.taux>80?'var(--yellow)':'var(--red)'};">${x.taux.toFixed(1)}%</strong></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ── Paramètres ──
+function buildSettings(){
+  return `
+  <h1 class="page-title">${t("Paramètres de l'entreprise")}</h1>
+  <div class="card" style="max-width: 600px;">
+    
+    <div class="form-group" style="margin-bottom: 24px; padding-bottom: 18px; border-bottom: 2px dashed var(--border);">
+      <label class="form-label">${t("Langue du système")}</label>
+      <select id="set-lang" class="form-select" style="max-width: 200px;">
+        <option value="fr" ${db.settings.lang === 'fr' ? 'selected' : ''}>Français</option>
+        <option value="ar" ${db.settings.lang === 'ar' ? 'selected' : ''}>العربية (Arabe)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">${t("Nom de l'entreprise")}</label>
+      <input id="set-nom" class="form-input" value="${escHTML(db.settings.nom)}" placeholder="Ex: Boulangerie Bamba" />
+    </div>
+    
+    <div class="form-group">
+      <label class="form-label">${t("Logo (Image)")}</label>
+      <div style="display:flex; align-items:center; gap:15px; margin-bottom:12px;">
+        <div style="width:64px;height:64px;border-radius:12px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:32px;overflow:hidden;border:2px solid var(--border);">
+          ${renderLogo()}
+        </div>
+        <input id="set-logo-file" type="file" accept="image/*" class="form-input" style="flex:1;" />
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom: 6px;">${t("Ou utiliser un simple texte/émoji :")}</div>
+      <input id="set-logo-text" class="form-input" value="${db.settings.isImage ? '' : escHTML(db.settings.logo)}" placeholder="Ex: 🥖, 🥐 ou MonLogo"/>
+    </div>
+
+    <button class="btn-primary" id="btn-save-settings" style="width: 100%; justify-content: center; margin-top: 10px;">${t("Enregistrer les modifications")}</button>
+  </div>`;
+}
+
+// ════════════════════════════════════════════
+// 🚚  LIVREUR DASHBOARD
+// ════════════════════════════════════════════
+function buildLivreur(){
+  const u=state.user;
+  const livreurData=db.livreurs[u.username]||{clients:[]};
+  const clients=livreurData.clients.map(id=>({id,...db.clients[id]})).filter(c=>c.nom);
+  const st=calcLivreurStats(u.username);
+  
+  // Nouveau : Récupérer toutes les prises de stock du jour pour CE livreur, triées par heure d'ajout
+  const myStocksToday = db.stocks
+    .filter(s => s.livreur === u.username && isToday(s.date))
+    .sort((a,b) => new Date(a.date) - new Date(b.date)); // Du plus ancien (charge 1) au plus récent
+  
+  const myStocksTodayHtml = `
+  <div class="card" style="margin-bottom:24px;">
+    <div class="card-title">📝 Détail de mes prises de stock (Aujourd'hui)</div>
+    ${!myStocksToday.length ? `<div style="color:var(--muted);font-size:14px;">Aucun stock pris à la boulangerie aujourd'hui.</div>` : `
+    <table class="data-table">
+      <thead><tr>
+        <th>Heure</th>
+        <th>Moment</th>
+        <th class="right">Quantité</th>
+      </tr></thead>
+      <tbody>
+        ${myStocksToday.map((s, idx) => {
+          const time = new Date(s.date).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'});
+          return \`<tr>
+            <td style="color:var(--muted); font-weight:600;">\${time}</td>
+            <td><span class="badge" style="background:var(--bg);color:var(--gold);text-transform:capitalize;">\${s.type} (Charge n°\${idx+1})</span></td>
+            <td class="right"><strong style="color:var(--amber); font-size:16px;">\${s.quantite}</strong> pains</td>
+          </tr>\`;
+        }).join('')}
+        <tr style="background:#FFFBF0;">
+          <td colspan="2" style="font-size:14px;"><strong>Total pris aujourd'hui</strong></td>
+          <td class="right"><strong style="color:var(--gold); font-size:18px;">\${st.stockAuj}</strong> pains</td>
+        </tr>
+      </tbody>
+    </table>
+    `}
+  </div>`;
+
+  return `
+  <div class="main fade-in" style="max-width:1200px;margin:0 auto;padding-bottom:20px;">
+    <div class="livreur-header">
+      <div>
+        <div style="font-size:13px;opacity:.85;margin-bottom:5px;">Espace Livreur — ${escHTML(db.settings.nom)}</div>
+        <h1 style="font-family:'Syne';font-size:28px;font-weight:800;letter-spacing:-1px;">${escHTML(u.nom)}</h1>
+        <div id="live-clock" style="font-size:12px;opacity:.75;margin-top:4px;"></div>
+      </div>
+      <button class="btn-logout" id="btn-logout" style="width:auto;padding:11px 22px;">Déconnexion</button>
+    </div>
+
+    <div class="kpi-grid">
+      ${kpi('👥','Mes clients',clients.length.toString(),'var(--white)')}
+      ${kpi('🥖','Stock pris (Auj.)',st.stockAuj.toString()+' <span style="font-size:14px;font-weight:400;">pains</span>','var(--amber)')}
+      ${kpi('💰','CA Aujourd\'hui',fcfa(st.caAuj),'var(--green)')}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;margin-bottom:28px;">
+      ${actionCard('👥','Nouveau client','Créer une fiche client','btn-add-client')}
+      ${actionCard('🥖','Prendre mon stock','Déclarer à la boulangerie','btn-prise-stock-global')}
+      ${actionCard('🚶','Vente en route','Vente directe à 150 FCFA','btn-vente-detail')}
+    </div>
+
+    ${myStocksTodayHtml}
+
+    <div class="card" style="margin-bottom:24px;">
+      <div class="card-title" style="display:flex; justify-content:space-between;">
+        <span>🚚 Mes Tournées d'Aujourd'hui</span>
+        <span style="font-size:13px; color:var(--muted); font-weight:normal;">Cliquez sur un client pour renseigner la tournée</span>
+      </div>
+      
+      ${!clients.length?`<div class="empty"><div class="empty-icon">📋</div><p>Aucun client ajouté</p></div>`:`
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+        ${clients.map(c=>{
+          const livToday = db.livraisons.find(l => l.clientId === c.id && l.livreur === u.username && (isToday(l.date) || l.statut === 'en_cours'));
+          
+          let statusBadge = '<span class="badge" style="background:#E5E7EB;color:#374151;">▶️ À démarrer</span>';
+          let cardStyle = 'border-color: var(--border);';
+          
+          if(livToday) {
+            if(livToday.statut === 'en_cours') {
+              statusBadge = `<span class="badge" style="background:#FEF3C7;color:#D97706;">⏳ En cours (M:${livToday.matin||0} S:${livToday.soir||0})</span>`;
+              cardStyle = 'border-color: var(--amber); border-width: 2px;';
+            } else {
+              statusBadge = `<span class="badge" style="background:#F0FDF4;color:#059669;">✅ Clôturé (${livToday.vendu} vendus)</span>`;
+              cardStyle = 'border-color: var(--green); opacity: 0.8;';
+            }
+          }
+
+          return `
+          <div class="client-card action-client-card" style="${cardStyle} cursor:pointer;" data-id="${c.id}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+              <strong style="font-size:15px;">${escHTML(c.nom)}</strong>
+              ${statusBadge}
+            </div>
+            <div class="client-meta">
+              📍 ${escHTML(c.adresse||'Adresse non renseignée')}
+              ${c.creance && c.creance > 0 ? `<br><span style="color:var(--red); font-weight:700; display:inline-block; margin-top:4px;">⚠️ Dette : ${fcfa(c.creance)}</span>` : ''}
+              ${c.creance && c.creance < 0 ? `<br><span style="color:var(--green); font-weight:700; display:inline-block; margin-top:4px;">✅ Avoir : ${fcfa(Math.abs(c.creance))}</span>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`}
+    </div>
+
+  </div>
+  ${buildModal()}`;
+}
+
+function actionCard(icon,title,desc,id){
+  return `<button id="${id}" style="
+    background:var(--white);border:2px solid var(--border);border-radius:14px;
+    padding:22px;cursor:pointer;text-align:start;width:100%;
+    transition:transform .2s,box-shadow .2s,border-color .2s;
+    box-shadow:0 4px 14px rgba(0,0,0,.05);
+    font-family:'DM Sans';
+  " onmouseover="this.style.transform='translateY(-4px)';this.style.boxShadow='0 10px 24px rgba(217,119,6,.15)';this.style.borderColor='var(--gold)';"
+     onmouseout="this.style.transform='';this.style.boxShadow='0 4px 14px rgba(0,0,0,.05)';this.style.borderColor='var(--border)';">
+    <div style="font-size:38px;margin-bottom:12px;">${icon}</div>
+    <div style="font-family:'Syne';font-size:17px;font-weight:700;margin-bottom:5px;">${title}</div>
+    <div style="font-size:13px;color:var(--muted);">${desc}</div>
+  </button>`;
+}
+
+// ════════════════════════════════════════════
+// 🪟  MODALS
+// ════════════════════════════════════════════
+function buildModal(){
+  if(!state.modal) return '';
+  let inner='';
+
+  if(state.modal==='addLivreur'){
+    inner=`
+    <div class="modal-title">🚚 Nouveau Livreur</div>
+    <div class="form-group"><label class="form-label">Nom complet</label>
+      <input id="m-nom" class="form-input" placeholder="Ex: Ousmane Diallo" value="${escHTML(state.fNom)}"/></div>
+    <div class="form-group"><label class="form-label">Nom d'utilisateur</label>
+      <input id="m-username" class="form-input" placeholder="Ex: ousmane" value="${escHTML(state.fUsername)}"/></div>
+    <div class="form-group"><label class="form-label">Mot de passe</label>
+      <input id="m-password" class="form-input" type="password" placeholder="••••••••" value="${escHTML(state.fPassword)}"/></div>
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions">
+      <button class="btn-secondary" id="btn-modal-close">Annuler</button>
+      <button class="btn-primary" id="btn-save-livreur">Créer le compte</button>
+    </div>`;
+  }
+
+  if(state.modal==='addClient'){
+    inner=`
+    <div class="modal-title">👥 Nouveau Client</div>
+    <div class="form-group"><label class="form-label">Nom du client / boutique *</label>
+      <input id="m-cnom" class="form-input" placeholder="Ex: Boutique Fama" value="${escHTML(state.fClientNom)}"/></div>
+    <div class="form-group"><label class="form-label">Adresse</label>
+      <input id="m-cadresse" class="form-input" placeholder="Ex: Marché HLM, Dakar" value="${escHTML(state.fClientAdresse)}"/></div>
+    <div class="form-group"><label class="form-label">Téléphone</label>
+      <input id="m-ctel" class="form-input" type="tel" placeholder="Ex: 77 123 45 67" value="${escHTML(state.fClientTel)}"/></div>
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions">
+      <button class="btn-secondary" id="btn-modal-close">Annuler</button>
+      <button class="btn-primary" id="btn-save-client">Ajouter</button>
+    </div>`;
+  }
+
+  if(state.modal==='addDepense'){
+    inner=`
+    <div class="modal-title">💸 Nouvelle Dépense</div>
+    <div class="form-group"><label class="form-label">Catégorie *</label>
+      <select id="m-dep-cat" class="form-select">
+        <option value="Farine">Farine</option>
+        <option value="Levure & Ingrédients">Levure & Ingrédients</option>
+        <option value="Bois / Gaz">Bois / Gaz</option>
+        <option value="Électricité / Eau">Électricité / Eau</option>
+        <option value="Salaires">Salaires</option>
+        <option value="Transport / Carburant">Transport / Carburant</option>
+        <option value="Autre">Autre</option>
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Montant (FCFA) *</label>
+      <input id="m-dep-montant" class="form-input" type="number" min="0" placeholder="Ex: 15000" />
+    </div>
+    <div class="form-group"><label class="form-label">Description</label>
+      <input id="m-dep-desc" class="form-input" placeholder="Ex: Achat de 2 sacs de farine..." />
+    </div>
+    <div class="form-group"><label class="form-label">Date</label>
+      <input id="m-dep-date" class="form-input" type="date" value="${new Date().toISOString().split('T')[0]}" />
+    </div>
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions">
+      <button class="btn-secondary" id="btn-modal-close">Annuler</button>
+      <button class="btn-primary" id="btn-save-depense">Enregistrer</button>
+    </div>`;
+  }
+
+  if(state.modal==='addFarine'){
+    inner=`
+    <div class="modal-title">🌾 Ajouter du stock (Farine)</div>
+    <div class="form-group"><label class="form-label">Quantité ajoutée (Sacs de 50kg) *</label>
+      <input id="m-app-qte" class="form-input" type="number" min="0.5" step="0.5" placeholder="Ex: 5" />
+    </div>
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions">
+      <button class="btn-secondary" id="btn-modal-close">Annuler</button>
+      <button class="btn-primary" id="btn-save-approvisionnement">Ajouter</button>
+    </div>`;
+  }
+
+  if(state.modal==='editConfigInv'){
+    const far = db.inventaire.farine;
+    inner=`
+    <div class="modal-title">⚙️ Paramètres d'Inventaire</div>
+    <div class="form-group"><label class="form-label">Rendement théorique (Pains par sac) *</label>
+      <input id="m-conf-rend" class="form-input" type="number" min="1" value="${far.rendement}" />
+    </div>
+    <div class="form-group"><label class="form-label">Seuil d'alerte (Sacs) *</label>
+      <input id="m-conf-seuil" class="form-input" type="number" min="0" value="${far.seuil}" />
+    </div>
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions">
+      <button class="btn-secondary" id="btn-modal-close">Annuler</button>
+      <button class="btn-primary" id="btn-save-config-inv">Enregistrer</button>
+    </div>`;
+  }
+
+  if(state.modal==='priseStockGlobal'){
+    inner=`
+    <div class="modal-title">🥖 Prise de Stock (Boulangerie)</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:18px;">Déclarez la quantité totale de pains que vous prenez à la boulangerie avant votre tournée.</div>
+    <div class="form-group"><label class="form-label">Moment de la journée</label>
+      <select id="s-type" class="form-select">
+        <option value="matin">Matin</option>
+        <option value="soir">Soir</option>
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Quantité de pains pris *</label>
+      <input id="s-qte" class="form-input" type="number" min="1" placeholder="Ex: 500"></div>
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions">
+      <button class="btn-secondary" id="btn-modal-close">Annuler</button>
+      <button class="btn-primary" id="btn-save-stock-global">Valider le stock</button>
+    </div>`;
+  }
+
+  if(state.modal==='venteDetail'){
+    inner=`
+    <div class="modal-title">🚶 Vente en route (Détail)</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:18px;">Enregistrez les pains vendus directement aux passants (Prix unitaire: <strong>${PAIN_PRIX_DETAIL} FCFA</strong>).</div>
+    <div class="form-group"><label class="form-label">Quantité vendue *</label>
+      <input id="vd-qte" class="form-input" type="number" min="1" placeholder="Ex: 5"></div>
+    
+    <div id="vd-preview" class="alert-success" style="background:var(--bg); border-color:var(--border); color:var(--dark); display:none;"></div>
+
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions" style="margin-top:20px;">
+      <button class="btn-secondary" id="btn-modal-close">Annuler</button>
+      <button class="btn-primary" id="btn-save-detail">✅ Valider l'encaissement</button>
+    </div>`;
+  }
+
+  if(state.modal==='ficheClient'){
+    const c = state.activeClient;
+    const isClosed = state.activeLiv && state.activeLiv.statut === 'terminee';
+    
+    const m = state.activeLiv ? (state.activeLiv.matin||'') : '';
+    const s = state.activeLiv ? (state.activeLiv.soir||'') : '';
+    const r = (state.activeLiv && state.activeLiv.statut === 'terminee') ? state.activeLiv.restant : '';
+    const p = (state.activeLiv && state.activeLiv.paye !== undefined) ? state.activeLiv.paye : '';
+    
+    const rEntier = r !== '' ? Math.floor(r) : '';
+    const rDemi = r !== '' ? ((r % 1) !== 0 ? 1 : 0) : '';
+
+    inner=`
+    <div class="modal-title">📦 Fiche Journalière : ${escHTML(c.nom)}</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:18px;">Renseignez vos dépôts au fur et à mesure. Clôturez en fin de journée avec les invendus et l'encaissement.</div>
+    
+    ${isClosed ? `<div class="alert-success" style="padding:10px; margin-bottom:15px; font-weight:bold;">✅ Cette journée est clôturée. Vous pouvez modifier en cas d'erreur.</div>` : ''}
+
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Dépôt Matin</label>
+        <input id="m-matin" class="form-input" type="number" min="0" placeholder="0" value="${m}"></div>
+      <div class="form-group"><label class="form-label">Dépôt Soir</label>
+        <input id="m-soir" class="form-input" type="number" min="0" placeholder="0" value="${s}"></div>
+    </div>
+    
+    <div class="form-group" style="margin-top:15px; border-top:1px solid var(--border); padding-top:15px;">
+      <label class="form-label">Retours (Invendus) - Fin de journée</label>
+      <div class="form-row">
+        <div>
+          <span style="font-size:11px; color:var(--muted);">Pains entiers</span>
+          <input id="m-restant-entier" class="form-input" type="number" min="0" placeholder="0" value="${rEntier}">
+        </div>
+        <div>
+          <span style="font-size:11px; color:var(--muted);">Demi-pains (Moitiés)</span>
+          <input id="m-restant-demi" class="form-input" type="number" min="0" placeholder="0" value="${rDemi}">
+        </div>
+      </div>
+    </div>
+    
+    <div class="form-group" id="group-paiement" style="display:none; margin-top:15px; border-top:2px dashed var(--border); padding-top:15px;">
+      <label class="form-label" style="color:var(--green); font-size:14px;">💰 Montant encaissé (FCFA)</label>
+      <input id="m-paye" class="form-input" type="number" min="0" placeholder="Ex: 1500" value="${p}">
+      <div style="font-size:12px; color:var(--muted); margin-top:4px;">Laissez vide ou mettez 0 s'il ne paie rien aujourd'hui. L'impayé s'ajoutera à sa dette.</div>
+    </div>
+
+    <div id="fiche-preview" class="alert-success" style="background:var(--bg); border-color:var(--border); color:var(--dark); display:none;">
+      </div>
+
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions" style="margin-top:20px;">
+      <button class="btn-secondary" id="btn-save-draft">💾 Sauvegarder Brouillon</button>
+      <button class="btn-primary" id="btn-cloture-liv">✅ Clôturer la journée</button>
+    </div>`;
+  }
+
+  return `<div class="modal-backdrop" id="modal-backdrop">
+    <div class="modal-box">
+      <button class="modal-close" id="btn-modal-close">✕</button>
+      ${inner}
+    </div>
+  </div>`;
+}
+
+function showError(msg){
+  const el=document.getElementById('modal-error');
+  if(el){ el.style.display='flex'; el.textContent=msg; }
+}
+
+// ════════════════════════════════════════════
+// 🔌  EVENT BINDING
+// ════════════════════════════════════════════
+function bindEvents(){
+  // Login
+  const btnLogin=document.getElementById('btn-login');
+  if(btnLogin){ btnLogin.addEventListener('click', doLogin);
+    document.getElementById('inp-pass')?.addEventListener('keydown',e=>e.key==='Enter'&&doLogin()); }
+
+  // Logout
+  const btnLogout=document.getElementById('btn-logout');
+  if(btnLogout) btnLogout.addEventListener('click',()=>setState({view:'login',user:null,modal:null,loginError:'',fUsername:'',fPassword:''}));
+
+  // Assistant IA Lecture Audio
+  document.getElementById('btn-play-ia')?.addEventListener('click', () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel(); 
+      const text = document.getElementById('ia-summary-text').innerText;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'fr-FR';
+      utterance.rate = 1.0; 
+      window.speechSynthesis.speak(utterance);
+    } else {
+      showToast("Votre navigateur ne supporte pas la lecture audio.", "warning");
+    }
+  });
+
+  // Admin tabs (sidebar + mobile)
+  document.querySelectorAll('.nav-btn[data-tab], .mobile-nav-btn[data-tab]').forEach(btn=>{
+    btn.addEventListener('click',()=>setState({adminTab:btn.dataset.tab}));
+  });
+
+  // Periode selector
+  const sel=document.getElementById('sel-periode');
+  if(sel) sel.addEventListener('change',()=>setState({periode:sel.value}));
+
+  // Export CSV
+  document.getElementById('btn-export-csv')?.addEventListener('click', exportCSV);
+
+  // Open modals
+  document.getElementById('btn-new-livreur')?.addEventListener('click',()=>setState({modal:'addLivreur',fNom:'',fUsername:'',fPassword:''}));
+  document.getElementById('btn-add-client')?.addEventListener('click',()=>setState({modal:'addClient',fClientNom:'',fClientAdresse:'',fClientTel:''}));
+  document.getElementById('btn-new-depense')?.addEventListener('click',()=>setState({modal:'addDepense'}));
+  
+  // Modals Inventaire
+  document.getElementById('btn-add-farine')?.addEventListener('click',()=>setState({modal:'addFarine'}));
+  document.getElementById('btn-edit-config-inv')?.addEventListener('click',()=>setState({modal:'editConfigInv'}));
+
+  document.getElementById('btn-prise-stock-global')?.addEventListener('click',()=>setState({modal:'priseStockGlobal'}));
+  document.getElementById('btn-vente-detail')?.addEventListener('click',()=>setState({modal:'venteDetail'}));
+
+  // Open Fiche Client
+  document.querySelectorAll('.action-client-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      const clientId = e.currentTarget.dataset.id;
+      const client = db.clients[clientId];
+      const livToday = db.livraisons.find(l => l.clientId === clientId && l.livreur === state.user.username && (isToday(l.date) || l.statut === 'en_cours'));
+      
+      setState({
+        modal: 'ficheClient',
+        activeClient: {id: clientId, ...client},
+        activeLiv: livToday || null
+      });
+      updateFichePreview();
+    });
+  });
+
+  // Close modal
+  document.getElementById('btn-modal-close')?.addEventListener('click',()=>setState({modal:null}));
+  document.getElementById('modal-backdrop')?.addEventListener('click',e=>{
+    if(e.target.id==='modal-backdrop') setState({modal:null});
+  });
+
+  // Live update inputs for Fiche Client
+  ['m-matin','m-soir','m-restant-entier','m-restant-demi','m-paye'].forEach(id=>{
+    document.getElementById(id)?.addEventListener('input', updateFichePreview);
+  });
+
+  // Live update for Vente Détail
+  document.getElementById('vd-qte')?.addEventListener('input', (e) => {
+      const preview = document.getElementById('vd-preview');
+      const q = parseInt(e.target.value)||0;
+      if(q > 0) {
+          preview.innerHTML = `Montant à encaisser : <strong style="color:var(--green); font-size:16px;">${fcfa(q * PAIN_PRIX_DETAIL)}</strong>`;
+          preview.style.display = 'block';
+      } else {
+          preview.style.display = 'none';
+      }
+  });
+
+  function updateFichePreview() {
+    const preview = document.getElementById('fiche-preview');
+    const groupPaiement = document.getElementById('group-paiement');
+    if(!preview) return;
+    const m = parseInt(document.getElementById('m-matin')?.value)||0;
+    const s = parseInt(document.getElementById('m-soir')?.value)||0;
+    
+    const rEntierInput = document.getElementById('m-restant-entier')?.value;
+    const rDemiInput = document.getElementById('m-restant-demi')?.value;
+    const rVal = (parseInt(rEntierInput)||0) + ((parseInt(rDemiInput)||0) * 0.5);
+    const isRestantFilled = (rEntierInput !== '' || rDemiInput !== '');
+
+    const payeInput = document.getElementById('m-paye')?.value;
+    const payeVal = parseInt(payeInput)||0;
+    
+    if(m || s || isRestantFilled) {
+       let html = `Total déposé : <strong>${m+s} pains</strong><br/>`;
+       if(isRestantFilled) {
+          const v = (m+s)-rVal;
+          if(v >= 0) {
+             const montantJour = v * PAIN_PRIX;
+             const detteAncienne = state.activeClient.creance || 0;
+             const totalDu = montantJour + detteAncienne;
+             const reste = totalDu - payeVal;
+
+             html += `Vendus : <strong style="color:var(--green);">${v} pains</strong> (Valeur: ${fcfa(montantJour)})<br/>`;
+             if(detteAncienne !== 0) {
+                 html += `Ancienne dette / solde : <strong style="color:${detteAncienne>0?'var(--red)':'var(--green)'};">${fcfa(detteAncienne)}</strong><br/>`;
+             }
+             html += `<div style="margin:8px 0; padding:8px; background:#fff; border-radius:6px; border:1px solid #D1D5DB;">Total à régler : <strong>${fcfa(totalDu)}</strong><br/>`;
+             html += `<button type="button" onclick="document.getElementById('m-paye').value=${totalDu}; document.getElementById('m-paye').dispatchEvent(new Event('input'))" style="margin-top:6px; font-family:'DM Sans'; font-size:12px; font-weight:bold; padding:6px 10px; border-radius:6px; border:1px solid var(--green); background:#F0FDF4; color:var(--green); cursor:pointer; width:100%;">💰 Payer la totalité (${fcfa(totalDu)})</button></div>`;
+
+             if(payeInput !== '') {
+                 if(reste > 0) {
+                     html += `Nouveau solde (Dette) : <strong style="color:var(--red);">${fcfa(reste)}</strong>`;
+                 } else if (reste < 0) {
+                     html += `Nouveau solde (Avoir) : <strong style="color:var(--green);">${fcfa(Math.abs(reste))}</strong>`;
+                 } else {
+                     html += `Nouveau solde : <strong style="color:var(--green);">Réglé (0 FCFA)</strong>`;
+                 }
+             }
+
+             if(groupPaiement) groupPaiement.style.display = 'block';
+          } else {
+             html += `<strong style="color:var(--red);">Erreur: Plus de retours que de pains déposés.</strong>`;
+             if(groupPaiement) groupPaiement.style.display = 'none';
+          }
+       } else {
+           if(groupPaiement) groupPaiement.style.display = 'none';
+       }
+       preview.innerHTML = html;
+       preview.style.display = 'block';
+    } else {
+       preview.style.display = 'none';
+       if(groupPaiement) groupPaiement.style.display = 'none';
+    }
+  }
+
+  // Save livreur
+  document.getElementById('btn-save-livreur')?.addEventListener('click',()=>{
+    const nom=(document.getElementById('m-nom')?.value||'').trim();
+    const username=(document.getElementById('m-username')?.value||'').toLowerCase().trim();
+    const password=(document.getElementById('m-password')?.value||'').trim();
+    if(!nom||!username||!password){ showError('Veuillez remplir tous les champs'); return; }
+    if(db.users[username]){ showError("Ce nom d'utilisateur existe déjà"); return; }
+    db.users[username]={ role:'livreur', nom, password, createdAt:new Date().toISOString() };
+    db.livreurs[username]={ clients:[] };
+    saveDB(); 
+    setState({modal:null, adminTab:'livreurs'});
+  });
+
+  // Save client
+  document.getElementById('btn-save-client')?.addEventListener('click',()=>{
+    const nom=(document.getElementById('m-cnom')?.value||'').trim();
+    const adresse=(document.getElementById('m-cadresse')?.value||'').trim();
+    const telephone=(document.getElementById('m-ctel')?.value||'').trim();
+    if(!nom){ showError('Veuillez entrer le nom du client'); return; }
+    const cid='c'+uid();
+    db.clients[cid]={ nom, adresse, telephone, creance:0, createdAt:new Date().toISOString() };
+    const u=state.user.username;
+    if(!db.livreurs[u]) db.livreurs[u]={clients:[]};
+    db.livreurs[u].clients.push(cid);
+    saveDB(); 
+    setState({modal:null});
+  });
+
+  // Save dépense
+  document.getElementById('btn-save-depense')?.addEventListener('click', () => {
+    const cat = document.getElementById('m-dep-cat')?.value;
+    const montant = parseInt(document.getElementById('m-dep-montant')?.value);
+    const desc = (document.getElementById('m-dep-desc')?.value||'').trim();
+    const dateStr = document.getElementById('m-dep-date')?.value;
+
+    if(!cat || !montant || montant <= 0){ showError('Veuillez remplir la catégorie et un montant valide'); return; }
+
+    const dateObj = dateStr ? new Date(dateStr) : new Date();
+
+    if (!db.depenses) db.depenses = [];
+    db.depenses.push({
+      id: 'dep'+uid(),
+      categorie: cat,
+      montant: montant,
+      description: desc,
+      date: dateObj.toISOString()
+    });
+
+    saveDB();
+    setState({modal:null, adminTab: 'depenses'});
+    showToast(`Dépense enregistrée : ${fcfa(montant)} pour la catégorie ${cat}.`, 'success');
+  });
+
+  // Save Config Inventaire
+  document.getElementById('btn-save-config-inv')?.addEventListener('click', () => {
+      const rend = parseInt(document.getElementById('m-conf-rend')?.value);
+      const seuil = parseInt(document.getElementById('m-conf-seuil')?.value);
+      if(!rend || rend <= 0 || seuil < 0) { showError('Valeurs invalides'); return; }
+      
+      if(!db.inventaire) db.inventaire = defaultDB.inventaire;
+      db.inventaire.farine.rendement = rend;
+      db.inventaire.farine.seuil = seuil;
+      
+      saveDB();
+      setState({modal:null, adminTab: 'inventaire'});
+  });
+
+  // Save Approvisionnement Farine
+  document.getElementById('btn-save-approvisionnement')?.addEventListener('click', () => {
+      const qte = parseFloat(document.getElementById('m-app-qte')?.value);
+      if(!qte || qte <= 0) { showError('Veuillez entrer une quantité valide'); return; }
+      
+      if(!db.inventaire) db.inventaire = defaultDB.inventaire;
+      db.inventaire.farine.stock += qte;
+      
+      saveDB();
+      setState({modal:null, adminTab: 'inventaire'});
+      showToast(`Stock mis à jour : ${qte} sacs ajoutés.`, 'success');
+  });
+
+  // Save Prise de Stock Global (Déduction Automatique)
+  document.getElementById('btn-save-stock-global')?.addEventListener('click',()=>{
+    const type = document.getElementById('s-type')?.value;
+    const qte = parseInt(document.getElementById('s-qte')?.value);
+    
+    if(!qte || qte <= 0){ showError('Veuillez entrer une quantité valide'); return; }
+    
+    db.stocks.push({
+      id:'stk'+uid(),
+      livreur: state.user.username,
+      type,
+      quantite: qte,
+      date: new Date().toISOString()
+    });
+
+    // DÉDUCTION AUTOMATIQUE DE LA FARINE
+    if (db.inventaire && db.inventaire.farine && db.inventaire.farine.rendement > 0) {
+        const sacsConsommes = qte / db.inventaire.farine.rendement;
+        db.inventaire.farine.stock -= sacsConsommes;
+        // On empêche le stock de descendre en dessous de zéro si on veut, 
+        // ou on le laisse négatif pour montrer le déficit. On le laisse naturel.
+    }
+    
+    saveDB(); 
+    setState({modal:null});
+    showToast(`Stock déclaré : ${qte} pains pour le ${type}. Farine déduite automatiquement.`, 'success');
+  });
+
+  // Save Vente au détail (en route)
+  document.getElementById('btn-save-detail')?.addEventListener('click', () => {
+    const qte = parseInt(document.getElementById('vd-qte')?.value);
+    if(!qte || qte <= 0){ showError('Veuillez entrer une quantité valide'); return; }
+    
+    const montant = qte * PAIN_PRIX_DETAIL;
+    
+    db.livraisons.push({
+      id: 'liv'+uid(),
+      clientId: 'detail',
+      client: 'Vente en route (Détail)',
+      livreur: state.user.username,
+      matin: qte, soir: 0, restant: 0, vendu: qte, 
+      montant: montant, paye: montant,
+      statut: 'terminee',
+      date: new Date().toISOString()
+    });
+    
+    saveDB();
+    setState({modal:null});
+    showToast(`Vente enregistrée : ${qte} pains vendus pour ${fcfa(montant)}.`, 'success');
+  });
+
+  // Save Fiche Client (Brouillon ou Clôture)
+  document.getElementById('btn-save-draft')?.addEventListener('click', () => saveFicheClient('en_cours'));
+  document.getElementById('btn-cloture-liv')?.addEventListener('click', () => saveFicheClient('terminee'));
+
+  function saveFicheClient(statut) {
+    const matin = parseInt(document.getElementById('m-matin')?.value) || 0;
+    const soir = parseInt(document.getElementById('m-soir')?.value) || 0;
+    
+    const rEntierInput = document.getElementById('m-restant-entier')?.value;
+    const rDemiInput = document.getElementById('m-restant-demi')?.value;
+    const restant = (parseInt(rEntierInput)||0) + ((parseInt(rDemiInput)||0) * 0.5);
+
+    const payeInput = document.getElementById('m-paye')?.value;
+    const paye = payeInput !== '' ? parseInt(payeInput) : 0; 
+    
+    if(statut === 'terminee') {
+       if(matin+soir === 0) { showError("Impossible de clôturer avec 0 pain déposé."); return; }
+       if(rEntierInput === "" && rDemiInput === "") { showError("Veuillez saisir les retours (Mettez 0 s'il n'y en a pas)."); return; }
+       if(restant > matin+soir) { showError("Les retours ne peuvent pas dépasser les dépôts."); return; }
+    }
+
+    const vendu = (matin + soir) - restant;
+    const montant = vendu * PAIN_PRIX;
+
+    if(statut === 'terminee') {
+      const client = db.clients[state.activeClient.id];
+      if(!client.creance) client.creance = 0;
+
+      if (state.activeLiv && state.activeLiv.statut === 'terminee') {
+          const old_montant = state.activeLiv.montant || 0;
+          const old_paye = state.activeLiv.paye !== undefined ? state.activeLiv.paye : old_montant;
+          client.creance -= old_montant;
+          client.creance += old_paye;
+      }
+      
+      client.creance += montant; 
+      client.creance -= paye;    
+    }
+
+    if(state.activeLiv) {
+      const l = db.livraisons.find(x => x.id === state.activeLiv.id);
+      if(l) {
+        l.matin = matin; l.soir = soir; l.restant = restant;
+        l.vendu = vendu; l.montant = montant; l.paye = paye;
+        l.statut = statut;
+        l.date = new Date().toISOString();
+      }
+    } else {
+      db.livraisons.push({
+        id: 'liv'+uid(),
+        clientId: state.activeClient.id,
+        client: state.activeClient.nom,
+        livreur: state.user.username,
+        matin, soir, restant, vendu, montant, paye,
+        statut,
+        date: new Date().toISOString()
+      });
+    }
+    
+    saveDB(); 
+    setState({modal:null});
+
+    if(statut === 'terminee') {
+      showToast(`Journée clôturée pour ${state.activeClient.nom} ! ${vendu} pains vendus, ${fcfa(paye)} encaissés.`, 'success');
+    }
+  }
+
+  // Save Settings
+  document.getElementById('btn-save-settings')?.addEventListener('click', () => {
+    const lang = document.getElementById('set-lang').value;
+    const nom = document.getElementById('set-nom').value.trim();
+    const fileInput = document.getElementById('set-logo-file');
+    const textInput = document.getElementById('set-logo-text').value.trim();
+
+    db.settings.lang = lang;
+    if (nom) db.settings.nom = nom;
+
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        db.settings.logo = e.target.result;
+        db.settings.isImage = true;
+        saveDB();
+        setState({ adminTab: 'settings' });
+        showToast('Paramètres sauvegardés avec succès !', 'success');
+      };
+      reader.readAsDataURL(fileInput.files[0]);
+      return; 
+    } else if (textInput) {
+      db.settings.logo = textInput;
+      db.settings.isImage = false;
+    }
+
+    saveDB();
+    setState({ adminTab: 'settings' });
+    showToast('Paramètres sauvegardés avec succès !', 'success');
+  });
+}
+
+// ════════════════════════════════════════════
+// 🛡️  HELPERS
+// ════════════════════════════════════════════
+function escHTML(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&quot;'); }
+
+// ════════════════════════════════════════════
+// 📥  EXPORT CSV
+// ════════════════════════════════════════════
+function exportCSV() {
+  const r = calcRapport(state.periode);
+  const periodeLabel = {"aujourd'hui":"Aujourd_hui", semaine:"Cette_semaine", mois:"Ce_mois", tout:"Historique"};
+  
+  // Export livraisons
+  const rows = [['Date','Client','Livreur','Statut','Déposés','Vendus','Retours','Montant FCFA','Encaissé FCFA']];
+  let start;
+  const today = new Date(); today.setHours(0,0,0,0);
+  if(state.periode==="aujourd'hui") start=today;
+  else if(state.periode==='semaine') start=new Date(today-7*86400000);
+  else if(state.periode==='mois') start=new Date(today.getFullYear(),today.getMonth(),1);
+  else start=new Date(0);
+
+  db.livraisons
+    .filter(l=>new Date(l.date)>=start && l.statut!=='en_cours')
+    .sort((a,b)=>new Date(b.date)-new Date(a.date))
+    .forEach(l=>{
+      rows.push([
+        new Date(l.date).toLocaleDateString('fr-FR'),
+        l.client, l.livreur, l.statut==='terminee'?'Clôturé':'En cours',
+        l.matin+l.soir, l.vendu, l.restant,
+        l.montant, l.paye||l.montant
+      ]);
+    });
+  
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Rapport_${db.settings.nom.replace(/\s/g,'_')}_${periodeLabel[state.periode]||'Export'}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Export CSV téléchargé avec succès !', 'success');
+}
+
+// ════════════════════════════════════════════
+// 🚀  MAIN BUILD
+// ════════════════════════════════════════════
+function buildApp(){
+  if(state.view==='login') return buildLogin();
+  if(state.view==='admin') return `<div id="root-inner" style="display:flex;min-height:100vh;">${buildAdmin()}</div>`;
+  if(state.view==='livreur') return buildLivreur();
+  return buildLogin();
+}
+
+// ════════════════════════════════════════════
+// 🚀  DÉMARRAGE
+// ════════════════════════════════════════════
+
+// Charger le cache local immédiatement pour un démarrage rapide
+(async () => {
+  const cached = await idbLoad();
+  if(cached) {
+    db = cached;
+    normalizeDB();
+  }
+  render();
+  window.isAppInitialized = true;
+})();
+
+// ════════════════════════════════════════════
+// 📦  SERVICE WORKER — Cache du logiciel
+// ════════════════════════════════════════════
+if('serviceWorker' in navigator) {
+  // Créer le SW inline via blob
+  const swCode = `
+const CACHE = 'bamba-v7';
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE).then(c => c.addAll([location.href]))
+  );
+  self.skipWaiting();
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(keys =>
+    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+  ));
+  self.clients.claim();
+});
+self.addEventListener('fetch', e => {
+  if(e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request).then(r => {
+        const clone = r.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+        return r;
+      }).catch(() => caches.match(e.request))
+    );
+  }
+});
+`;
+  const blob = new Blob([swCode], {type: 'application/javascript'});
+  const swUrl = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).then(() => {
+    console.log('✅ Service Worker enregistré — Logiciel disponible hors ligne');
+  }).catch(e => console.log('SW non supporté:', e));
+}
+</script>
+</body>
+</html>

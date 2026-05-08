@@ -1074,6 +1074,7 @@ const defaultDB = {
     farine: { nom: 'Farine (Sacs de 50kg)', stock: 12, seuil: 5, rendement: 250 }
   },
   users: {
+    superadmin: { role:'superadmin', nom:'Super Administrateur', password:'superadmin2024', createdAt:'2024-01-01T00:00:00Z' },
     admin:   { role:'admin',    nom:'Administrateur',  password:'1234', createdAt:'2024-01-01T00:00:00Z' },
     ousmane: { role:'livreur',  nom:'Ousmane Diallo',  password:'1234', createdAt:'2024-03-10T00:00:00Z' },
     fatou:   { role:'livreur',  nom:'Fatou Ndiaye',    password:'1234', createdAt:'2024-04-01T00:00:00Z' },
@@ -1095,7 +1096,13 @@ const defaultDB = {
   livraisons: generateDemoLivraisons(),
   depenses: generateDemoDepenses(),
   boutiques: {}, // Boutiques / Patisseries gérées par des vendeurs
-  ventesJournalieresVendeur: [] // Journées vendeur (clôtures boutique)
+  ventesJournalieresVendeur: [], // Journées vendeur (clôtures boutique)
+  chargeursClients: {}, // { chargeurUsername: ["cid1",...] }
+  ventesChargeur: [], // Ventes directes par les chargeurs
+  loginHistory: [], // { id, username, userNom, userRole, loginAt }
+  licenses: {
+    admin: { active: true, expiresAt: null, createdAt: '2024-01-01T00:00:00Z', note: 'Licence principale' }
+  } // Licences par username admin
 };
 
 // 🔴 REMPLACE CE BLOC PAR TA CONFIGURATION FIREBASE
@@ -1310,13 +1317,26 @@ function normalizeDB() {
   if (!db.livraisons) db.livraisons = [];
   if (!db.livreurs)   db.livreurs   = {};
   if (!db.users)      db.users      = defaultDB.users;
+  // 👑 Le superadmin doit TOUJOURS exister, même après sync Firebase
+  if (!db.users.superadmin) {
+    db.users.superadmin = { role:'superadmin', nom:'Super Administrateur', password:'superadmin2024', createdAt:'2024-01-01T00:00:00Z' };
+  } else if(db.users.superadmin.role !== 'superadmin') {
+    db.users.superadmin.role = 'superadmin'; // Sécurité : s'assurer que le rôle ne change pas
+  }
   if (!db.charges)    db.charges    = []; // Historique des charges par chargeur
   if (!db.boutiques)  db.boutiques  = {}; // Boutiques / Patisseries
   if (!db.chargesBoutiques) db.chargesBoutiques = []; // Approvisionnements boutiques
   if (!db.dons) db.dons = [];                           // Dons de pain
   if (!db.ventesJournalieresVendeur) db.ventesJournalieresVendeur = [];
+  if (!db.chargeursClients) db.chargeursClients = {};
+  if (!db.ventesChargeur) db.ventesChargeur = [];
   // 🆕 V15 — Système de validation croisée
   if (!db.validations) db.validations = []; // Demandes de validation en attente/résolues
+  // 🆕 V16 — Super Admin
+  if (!db.loginHistory) db.loginHistory = [];
+  if (!db.licenses) db.licenses = {};
+  // S'assurer que l'admin a une licence par défaut
+  if (!db.licenses.admin) db.licenses.admin = { active: true, expiresAt: null, createdAt: new Date().toISOString(), note: '' };
 }
 
 // ════════════════════════════════════════════
@@ -1405,6 +1425,11 @@ let state = {
   view: 'login',          
   user: null,
   adminTab: 'overview',
+  superAdminTab: 'licenses',
+  saHistoryFilter: '',
+  saHistoryRole: '',
+  saEditUsername: '',
+  adminPrev: null,   // sauvegarde l'état admin avant basculement
   modal: null,            
   periode: "aujourd'hui",
   loginError: '',
@@ -1510,10 +1535,6 @@ function buildLogin(){
         </div>
       </div>
       <button class="btn-primary" id="btn-login" style="width:100%;justify-content:center;padding:14px;font-size:15px;">Se Connecter</button>
-      <div class="demo-hint">
-        <strong>Comptes disponibles :</strong>
-        👤 <b>admin</b> / 🔑 1234 &nbsp;|&nbsp; 👤 <b>ousmane</b> / 🔑 1234 &nbsp;|&nbsp; 👤 <b>chargeur1</b> / 🔑 1234
-      </div>
     </div>
   </div>`;
 }
@@ -1523,6 +1544,40 @@ function doLogin(){
   const p = document.getElementById('inp-pass').value;
   const user = db.users[u];
   if(user && user.password === p){
+    // Super Admin : accès sans licence nécessaire
+    if(user.role === 'superadmin') {
+      setState({ user:{username:u,...user}, fUsername:u, fPassword:'', loginError:'',
+        view:'superadmin', superAdminTab:'licenses' });
+      return;
+    }
+    // Vérification de licence pour les admins
+    if(user.role === 'admin') {
+      const lic = (db.licenses||{})[u];
+      if(lic) {
+        if(!lic.active) {
+          setState({ loginError: '🚫 Votre licence est désactivée. Contactez le Super Admin.', fUsername: u });
+          return;
+        }
+        if(lic.expiresAt && new Date(lic.expiresAt) < new Date()) {
+          setState({ loginError: `⏰ Votre licence a expiré le ${fdate(lic.expiresAt)}. Contactez le Super Admin.`, fUsername: u });
+          return;
+        }
+      }
+    }
+    // Enregistrer l'historique de connexion pour admin, chargeur, vendeur
+    if(['admin','chargeur','vendeur'].includes(user.role)) {
+      if(!db.loginHistory) db.loginHistory = [];
+      db.loginHistory.unshift({
+        id: 'log_' + uid(),
+        username: u,
+        userNom: user.nom,
+        userRole: user.role,
+        loginAt: new Date().toISOString()
+      });
+      // Limiter à 2000 entrées max
+      if(db.loginHistory.length > 2000) db.loginHistory = db.loginHistory.slice(0, 2000);
+      saveDB();
+    }
     let view = 'livreur';
     if(user.role === 'admin') view = 'admin';
     else if(user.role === 'chargeur') view = 'chargeur';
@@ -2033,6 +2088,9 @@ function buildLivreurs(){
           <div class="mini-stat-value" style="font-size:15px;">${fcfa(l.st.caMois)}</div>
         </div>
       </div>
+      <button class="btn-switch-view btn-primary" data-username="${escHTML(l.username)}" data-role="livreur" style="width:100%;justify-content:center;margin-top:12px;background:linear-gradient(135deg,#7C3AED,#A78BFA);box-shadow:0 4px 14px rgba(124,58,237,.25);">
+        👁️ Voir l'espace de ${escHTML(l.nom.split(' ')[0])}
+      </button>
     </div>`).join('')}
   </div>`;
 }
@@ -2131,12 +2189,17 @@ function buildChargementTab(){
     ${!chargeurs.length ? `<div class="empty" style="padding:24px;"><div class="empty-icon">🧑‍🏭</div><p>Aucun chargeur créé. Cliquez sur "Nouveau Chargeur" pour commencer.</p></div>` : `
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">
       ${chargeurs.map(ch => `
-      <div style="background:var(--bg);border-radius:12px;padding:16px;border:1px solid var(--border);display:flex;align-items:center;gap:14px;">
-        <div style="width:46px;height:46px;border-radius:10px;background:linear-gradient(135deg,#1D4ED8,#3B82F6);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🧑‍🏭</div>
-        <div>
-          <div style="font-weight:700;font-size:15px;">${escHTML(ch.nom)}</div>
-          <div style="font-size:12px;color:var(--muted);">@${escHTML(ch.username)}</div>
+      <div style="background:var(--bg);border-radius:12px;padding:16px;border:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+          <div style="width:46px;height:46px;border-radius:10px;background:linear-gradient(135deg,#1D4ED8,#3B82F6);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🧑‍🏭</div>
+          <div>
+            <div style="font-weight:700;font-size:15px;">${escHTML(ch.nom)}</div>
+            <div style="font-size:12px;color:var(--muted);">@${escHTML(ch.username)}</div>
+          </div>
         </div>
+        <button class="btn-switch-view btn-primary" data-username="${escHTML(ch.username)}" data-role="chargeur" style="width:100%;justify-content:center;font-size:13px;padding:9px;background:linear-gradient(135deg,#1D4ED8,#3B82F6);box-shadow:0 4px 14px rgba(29,78,216,.25);">
+          👁️ Voir l'espace chargeur
+        </button>
       </div>`).join('')}
     </div>`}
   </div>`;
@@ -2477,6 +2540,47 @@ function buildSettings(){
     </div>
 
     <button class="btn-primary" id="btn-save-settings" style="width: 100%; justify-content: center; margin-top: 10px;">${t("Enregistrer les modifications")}</button>
+  </div>
+
+  <!-- Zone de réinitialisation -->
+  <div class="card" style="max-width:600px;margin-top:24px;border:2px solid #FCA5A5;background:#FFF5F5;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <span style="font-size:28px;">⚠️</span>
+      <div>
+        <div style="font-family:'Syne';font-size:17px;font-weight:800;color:#991B1B;">Zone dangereuse — Réinitialisation</div>
+        <div style="font-size:13px;color:#B91C1C;margin-top:3px;">Ces actions sont irréversibles. Procédez avec précaution.</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="background:white;border:1px solid #FCA5A5;border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="font-weight:700;font-size:14px;">🚚 Effacer les tournées</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px;">Supprime tout l'historique des livraisons</div>
+        </div>
+        <button class="btn-secondary" id="btn-reset-livraisons" style="background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;padding:9px 16px;font-size:13px;">🗑️ Effacer</button>
+      </div>
+      <div style="background:white;border:1px solid #FCA5A5;border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="font-weight:700;font-size:14px;">💸 Effacer les dépenses</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px;">Supprime toutes les dépenses enregistrées</div>
+        </div>
+        <button class="btn-secondary" id="btn-reset-depenses" style="background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;padding:9px 16px;font-size:13px;">🗑️ Effacer</button>
+      </div>
+      <div style="background:white;border:1px solid #FCA5A5;border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="font-weight:700;font-size:14px;">📦 Effacer le stock / charges</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px;">Supprime toutes les sorties de stock</div>
+        </div>
+        <button class="btn-secondary" id="btn-reset-stocks" style="background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;padding:9px 16px;font-size:13px;">🗑️ Effacer</button>
+      </div>
+      <div style="background:#FFF0F0;border:2px dashed #F87171;border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="font-weight:800;font-size:14px;color:#991B1B;">💣 Réinitialisation complète</div>
+          <div style="font-size:12px;color:#B91C1C;margin-top:3px;">Efface TOUTES les données (tournées, dépenses, stocks, clients, livreurs)</div>
+        </div>
+        <button class="btn-secondary" id="btn-reset-all" style="background:#DC2626;color:white;border:none;padding:9px 16px;font-size:13px;font-weight:700;">💣 Tout effacer</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2491,6 +2595,17 @@ function buildLivreur(){
   
   return `
   <div class="main fade-in" style="max-width:1200px;margin:0 auto;padding-bottom:20px;">
+    ${state.adminPrev ? `
+    <div style="background:linear-gradient(135deg,#7C3AED,#A78BFA);border-radius:14px;padding:14px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 4px 16px rgba(124,58,237,.3);">
+      <div style="color:white;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">👁️</span>
+        <div>
+          <div style="font-weight:800;font-size:14px;">Mode Aperçu Admin</div>
+          <div style="font-size:12px;opacity:.85;">Vous voyez l'espace de <strong>${escHTML(u.nom)}</strong></div>
+        </div>
+      </div>
+      <button id="btn-retour-admin" style="padding:10px 20px;background:white;color:#7C3AED;border:none;border-radius:10px;font-family:'Syne';font-size:14px;font-weight:800;cursor:pointer;">← Retour Admin</button>
+    </div>` : ''}
     <div class="livreur-header">
       <div>
         <div style="font-size:13px;opacity:.85;margin-bottom:5px;">Espace Livreur — ${escHTML(db.settings.nom)}</div>
@@ -2594,6 +2709,87 @@ function actionCard(icon,title,desc,id){
   </button>`;
 }
 
+
+// ════════════════════════════════════════════
+// 👥  CHARGEUR — CLIENTS & VENTES DIRECTES
+// ════════════════════════════════════════════
+
+/** Retourne les clients propres au chargeur connecté */
+function getClientsChargeur() {
+  const uname = state.user.username;
+  const ids = db.chargeursClients[uname] || [];
+  return ids.map(id => ({ id, ...db.clients[id] })).filter(c => c.nom);
+}
+
+/** Section clients chargeur affichée dans son dashboard */
+function buildClientsChargeur() {
+  const clients = getClientsChargeur();
+  const uname = state.user.username;
+  // Ventes du jour pour ce chargeur
+  const ventesAuj = (db.ventesChargeur || []).filter(v => v.chargeur === uname && isToday(v.date));
+  const caAuj = ventesAuj.reduce((a, v) => a + v.montant, 0);
+  const painsAuj = ventesAuj.reduce((a, v) => a + v.quantite, 0);
+
+  return `
+  <div class="card" style="margin-bottom:24px;border:2px solid #FDE68A;">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <span>👥 Mes Clients — Ventes Directes</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="background:#F59E0B;color:#fff;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;">${painsAuj} pains auj.</span>
+        <span style="background:#047857;color:#fff;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;">${fcfa(caAuj)}</span>
+        <button id="btn-add-client-chargeur" style="padding:6px 14px;background:var(--gold);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans';">+ Client</button>
+      </div>
+    </div>
+    ${!clients.length ? `
+    <div style="text-align:center;padding:28px;background:#FFFBEB;border-radius:12px;border:2px dashed #FDE68A;">
+      <div style="font-size:36px;margin-bottom:8px;">👥</div>
+      <div style="font-weight:700;color:#92400E;">Aucun client pour le moment</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:4px;">Cliquez sur "+ Client" pour en ajouter un.</div>
+    </div>` : `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;">
+      ${clients.map(c => {
+        const ventesClient = ventesAuj.filter(v => v.clientId === c.id);
+        const painsClient = ventesClient.reduce((a, v) => a + v.quantite, 0);
+        const caClient = ventesClient.reduce((a, v) => a + v.montant, 0);
+        return `
+        <div style="background:${painsClient>0?'#FFFBEB':'var(--bg)'};border:2px solid ${painsClient>0?'#FDE68A':'var(--border)'};border-radius:14px;padding:16px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#F59E0B,#D97706);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">🏪</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHTML(c.nom)}</div>
+              <div style="font-size:11px;color:var(--muted);">${escHTML(c.adresse||'')}</div>
+            </div>
+          </div>
+          ${c.creance > 0 ? `<div style="background:#FEE2E2;color:#991B1B;font-size:12px;font-weight:700;padding:4px 10px;border-radius:8px;margin-bottom:8px;">⚠️ Créance : ${fcfa(c.creance)}</div>` : ''}
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:10px;">
+            <span>Aujourd'hui : <strong style="color:#92400E;">${painsClient} pains</strong></span>
+            <span><strong style="color:#047857;">${fcfa(caClient)}</strong></span>
+          </div>
+          <button class="btn-vendre-client-ch" data-cid="${c.id}" data-cnom="${escHTML(c.nom)}" style="width:100%;padding:9px;background:linear-gradient(135deg,#10B981,#047857);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans';">
+            💰 Vendre
+          </button>
+        </div>`;
+      }).join('')}
+    </div>`}
+    ${ventesAuj.length ? `
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--muted);">📋 Ventes du jour</div>
+      <table class="data-table">
+        <thead><tr><th>Heure</th><th>Client</th><th>Pains</th><th>Montant</th><th>Paiement</th></tr></thead>
+        <tbody>
+          ${ventesAuj.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(v=>`
+          <tr>
+            <td style="font-size:12px;color:var(--muted);">${new Date(v.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
+            <td><strong>${escHTML(v.clientNom)}</strong></td>
+            <td><span style="font-family:'Syne';font-weight:800;color:#D97706;">${v.quantite}</span></td>
+            <td><strong style="color:#047857;">${fcfa(v.montant)}</strong></td>
+            <td><span style="background:${v.creance>0?'#FEE2E2':v.paye>=v.montant?'#D1FAE5':'#FEF9C3'};color:${v.creance>0?'#991B1B':v.paye>=v.montant?'#065F46':'#92400E'};font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;">${v.creance>0?'⚠️ Créance':v.paye>=v.montant?'✅ Payé':'⏳ Partiel'}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+  </div>`;
+}
 // ════════════════════════════════════════════
 // 🧑‍🏭  CHARGEUR DASHBOARD
 // ════════════════════════════════════════════
@@ -2638,6 +2834,17 @@ function buildChargeur(){
 
   return `
   <div class="main fade-in" style="max-width:960px;margin:0 auto;padding-bottom:20px;">
+    ${state.adminPrev ? `
+    <div style="background:linear-gradient(135deg,#1D4ED8,#3B82F6);border-radius:14px;padding:14px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 4px 16px rgba(29,78,216,.3);">
+      <div style="color:white;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">👁️</span>
+        <div>
+          <div style="font-weight:800;font-size:14px;">Mode Aperçu Admin</div>
+          <div style="font-size:12px;opacity:.85;">Vous voyez l'espace de <strong>${escHTML(u.nom)}</strong></div>
+        </div>
+      </div>
+      <button id="btn-retour-admin" style="padding:10px 20px;background:white;color:#1D4ED8;border:none;border-radius:10px;font-family:'Syne';font-size:14px;font-weight:800;cursor:pointer;">← Retour Admin</button>
+    </div>` : ''}
     <div class="chargeur-header">
       <div>
         <div style="font-size:13px;opacity:.85;margin-bottom:5px;">Espace Chargeur — ${escHTML(db.settings.nom)}</div>
@@ -2669,7 +2876,12 @@ function buildChargeur(){
       <button id="btn-voir-historique-boutiques" style="padding:18px;font-size:15px;justify-content:center;border-radius:14px;background:var(--white);color:var(--dark);border:2px solid #DDD6FE;cursor:pointer;display:flex;align-items:center;gap:8px;font-family:'Syne';font-weight:700;transition:transform .2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">
         📋 Historique Boutiques
       </button>
+      <button id="btn-mes-clients-chargeur" style="padding:18px;font-size:15px;justify-content:center;border-radius:14px;background:linear-gradient(135deg,#F59E0B,#D97706);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;font-family:Syne,sans-serif;font-weight:700;box-shadow:0 4px 14px rgba(217,119,6,.25);transition:transform .2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">👥 Mes Clients</button>
+      <button id="btn-vente-directe-chargeur" style="padding:18px;font-size:15px;justify-content:center;border-radius:14px;background:linear-gradient(135deg,#10B981,#047857);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;gap:8px;font-family:Syne,sans-serif;font-weight:700;box-shadow:0 4px 14px rgba(5,150,105,.25);transition:transform .2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">💰 Vente Directe</button>
     </div>
+
+    <!-- u2500u2500 Section Clients Chargeur u2500u2500 -->
+    ${buildClientsChargeur()}
 
     <!-- ── Section Boutiques du jour ── -->
     <div class="card" style="margin-bottom:24px;border:2px solid #DDD6FE;">
@@ -2776,7 +2988,8 @@ function buildChargeur(){
   </div>
   ${buildModalChargeur()}
   ${buildChargerBoutiqueModal()}
-  ${buildDonPainModal()}`;
+  ${buildDonPainModal()}
+  ${buildModal()}`;
 }
 
 function buildModalChargeur(){
@@ -2896,6 +3109,67 @@ function buildModal(){
 
   // ── Don de pain (Livreur) ──
   if(state.modal === 'donPain') return buildDonPainModal();
+
+
+  // ── Chargeur : Ajouter client ──
+  if(state.modal === 'addClientChargeur'){
+    return `<div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-box">
+        <button class="modal-close modal-close-btn">✕</button>
+        <div class="modal-title">👥 Nouveau Client</div>
+        <div class="form-group"><label class="form-label">Nom du client / boutique *</label>
+          <input id="m-cc-nom" class="form-input" placeholder="Ex: Boutique Awa" value="${escHTML(state.fClientNom)}"/></div>
+        <div class="form-group"><label class="form-label">Adresse</label>
+          <input id="m-cc-adresse" class="form-input" placeholder="Ex: Marché HLM, Dakar" value="${escHTML(state.fClientAdresse)}"/></div>
+        <div class="form-group"><label class="form-label">Téléphone</label>
+          <input id="m-cc-tel" class="form-input" type="tel" placeholder="Ex: 77 123 45 67" value="${escHTML(state.fClientTel)}"/></div>
+        <div id="modal-error" style="display:none;" class="alert-error"></div>
+        <div class="form-actions">
+          <button class="btn-secondary modal-close-btn">Annuler</button>
+          <button class="btn-primary" id="btn-save-client-chargeur">Ajouter</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Chargeur : Vente directe (choisir client ou vente libre) ──
+  if(state.modal === 'venteDirecteChargeur'){
+    const clients = getClientsChargeur();
+    const cid = state.activeClient ? state.activeClient.id : '';
+    const selectedClient = cid ? db.clients[cid] : null;
+    return `<div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-box" style="max-width:500px;">
+        <button class="modal-close modal-close-btn">✕</button>
+        <div class="modal-title">💰 Vente Directe</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:18px;margin-top:-10px;">Enregistrez une vente de pain à un client ou à un acheteur de passage.</p>
+        <div class="form-group">
+          <label class="form-label">Client</label>
+          <select id="m-vch-client" class="form-input">
+            <option value="">— Acheteur de passage (anonyme) —</option>
+            ${clients.map(c => `<option value="${c.id}" ${cid===c.id?'selected':''}>${escHTML(c.nom)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Quantité de pains *</label>
+          <input id="m-vch-qte" class="form-input" type="number" min="1" placeholder="Ex: 20" oninput="document.getElementById('vch-preview')&&(()=>{const q=parseInt(this.value)||0;const p=parseInt(document.getElementById('m-vch-prix')?.value)||${PAIN_PRIX};document.getElementById('vch-preview').innerHTML=q>0?'Total : <strong style=color:var(--green)>'+q*p+' FCFA</strong>':'';})()"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prix unitaire (FCFA)</label>
+          <input id="m-vch-prix" class="form-input" type="number" min="1" value="${PAIN_PRIX}" oninput="document.getElementById('vch-preview')&&(()=>{const q=parseInt(document.getElementById('m-vch-qte')?.value)||0;const p=parseInt(this.value)||${PAIN_PRIX};document.getElementById('vch-preview').innerHTML=q>0?'Total : <strong style=color:var(--green)>'+q*p+' FCFA</strong>':'';})()"/>
+        </div>
+        <div id="vch-preview" style="font-size:15px;padding:10px 14px;background:#D1FAE5;border-radius:10px;margin-bottom:14px;display:none;"></div>
+        <div class="form-group">
+          <label class="form-label">Montant payé (FCFA) — laisser vide si paiement total</label>
+          <input id="m-vch-paye" class="form-input" type="number" min="0" placeholder="Laisser vide = tout payé"/>
+        </div>
+        <div id="modal-error" style="display:none;" class="alert-error"></div>
+        <div class="form-actions">
+          <button class="btn-secondary modal-close-btn">Annuler</button>
+          <button class="btn-primary" id="btn-save-vente-ch" style="background:linear-gradient(135deg,#10B981,#047857);">✅ Valider la vente</button>
+        </div>
+      </div>
+    </div>`;
+  }
 
   let inner='';
 
@@ -3292,6 +3566,40 @@ function showError(msg){
 // 🔌  EVENT BINDING
 // ════════════════════════════════════════════
 function bindEvents(){
+  // Super Admin
+  if(state.view === 'superadmin') { bindSuperAdminEvents(); }
+
+  // ── Basculer vue admin → employé ──
+  document.querySelectorAll('.btn-switch-view').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const username = btn.dataset.username;
+      const role = btn.dataset.role;
+      const targetUser = db.users[username];
+      if(!targetUser) return showToast("Utilisateur introuvable.", 'error');
+      // Sauvegarder l'état admin actuel
+      setState({
+        adminPrev: { user: state.user, view: state.view, adminTab: state.adminTab },
+        user: { username, ...targetUser },
+        view: role,
+        modal: null
+      });
+      showToast(`👁️ Aperçu de l'espace de ${targetUser.nom}`, 'info', 3000);
+    });
+  });
+
+  // ── Retour Admin depuis vue employé ──
+  document.getElementById('btn-retour-admin')?.addEventListener('click', () => {
+    if(!state.adminPrev) return;
+    setState({
+      user: state.adminPrev.user,
+      view: state.adminPrev.view,
+      adminTab: state.adminPrev.adminTab,
+      adminPrev: null,
+      modal: null
+    });
+    showToast('✅ Retour au panneau administrateur', 'success', 2500);
+  });
+
   // Login
   const btnLogin=document.getElementById('btn-login');
   if(btnLogin){ btnLogin.addEventListener('click', doLogin);
@@ -3386,6 +3694,52 @@ function bindEvents(){
 
   // Don de pain (Livreur)
   document.getElementById('btn-don-pain')?.addEventListener('click',()=>setState({modal:'donPain'}));
+
+  // ── Chargeur : Clients & Ventes Directes ──
+  document.getElementById('btn-add-client-chargeur')?.addEventListener('click', () => setState({modal:'addClientChargeur', fClientNom:'', fClientAdresse:'', fClientTel:''}));
+  document.getElementById('btn-mes-clients-chargeur')?.addEventListener('click', () => { const el=document.querySelector('.card[style*="FDE68A"]'); if(el) el.scrollIntoView({behavior:'smooth'}); });
+  document.getElementById('btn-vente-directe-chargeur')?.addEventListener('click', () => setState({modal:'venteDirecteChargeur', activeClient:null}));
+  document.querySelectorAll('.btn-vendre-client-ch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cid = btn.dataset.cid;
+      setState({modal:'venteDirecteChargeur', activeClient:{id:cid, ...db.clients[cid]}});
+    });
+  });
+  document.getElementById('btn-save-client-chargeur')?.addEventListener('click', () => {
+    const nom = (document.getElementById('m-cc-nom')?.value||'').trim();
+    const adresse = (document.getElementById('m-cc-adresse')?.value||'').trim();
+    const telephone = (document.getElementById('m-cc-tel')?.value||'').trim();
+    if(!nom){ showError('Veuillez entrer le nom du client'); return; }
+    const cid = 'c'+uid();
+    db.clients[cid] = { nom, adresse, telephone, creance:0, createdAt:new Date().toISOString() };
+    const uname = state.user.username;
+    if(!db.chargeursClients[uname]) db.chargeursClients[uname] = [];
+    db.chargeursClients[uname].push(cid);
+    saveDB();
+    setState({modal:null});
+    showToast('Client ajouté avec succès !', 'success');
+  });
+  document.getElementById('btn-save-vente-ch')?.addEventListener('click', () => {
+    const qte = parseInt(document.getElementById('m-vch-qte')?.value)||0;
+    const prix = parseInt(document.getElementById('m-vch-prix')?.value)||PAIN_PRIX;
+    const payeInput = document.getElementById('m-vch-paye')?.value;
+    const clientId = document.getElementById('m-vch-client')?.value || '';
+    const clientNom = clientId && db.clients[clientId] ? db.clients[clientId].nom : 'Passage';
+    if(!qte || qte <= 0){ showError('Veuillez entrer une quantité valide'); return; }
+    if(!prix || prix <= 0){ showError('Prix invalide'); return; }
+    const montant = qte * prix;
+    const paye = payeInput !== '' ? (parseInt(payeInput)||0) : montant;
+    const creance = Math.max(0, montant - paye);
+    if(clientId && creance > 0 && db.clients[clientId]) db.clients[clientId].creance = (db.clients[clientId].creance||0) + creance;
+    db.ventesChargeur.push({
+      id:'vch'+uid(), chargeur:state.user.username, chargeurNom:state.user.nom,
+      clientId: clientId||'passage', clientNom, quantite:qte, prixUnit:prix,
+      montant, paye, creance, date:new Date().toISOString()
+    });
+    saveDB();
+    setState({modal:null});
+    showToast('Vente enregistrée : '+qte+' pains pour '+fcfa(montant)+(creance>0?' (Créance: '+fcfa(creance)+')':''), creance>0?'info':'success');
+  });
 
   // Open Fiche Client
   document.querySelectorAll('.action-client-card').forEach(card => {
@@ -3912,6 +4266,68 @@ function bindEvents(){
     showToast('Paramètres sauvegardés avec succès !', 'success');
   });
 
+  // ── Réinitialisation des données ──
+  document.getElementById('btn-reset-livraisons')?.addEventListener('click', () => {
+    if(!confirm('⚠️ Êtes-vous sûr de vouloir effacer TOUTES les tournées ? Cette action est irréversible.')) return;
+    db.livraisons = [];
+    saveDB();
+    showToast('🗑️ Toutes les tournées ont été supprimées.', 'warning');
+    setState({ adminTab: 'settings' });
+  });
+
+  document.getElementById('btn-reset-depenses')?.addEventListener('click', () => {
+    if(!confirm('⚠️ Êtes-vous sûr de vouloir effacer TOUTES les dépenses ?')) return;
+    db.depenses = [];
+    saveDB();
+    showToast('🗑️ Toutes les dépenses ont été supprimées.', 'warning');
+    setState({ adminTab: 'settings' });
+  });
+
+  document.getElementById('btn-reset-stocks')?.addEventListener('click', () => {
+    if(!confirm('⚠️ Êtes-vous sûr de vouloir effacer tout le stock / les charges ?')) return;
+    db.stocks = [];
+    db.charges = [];
+    db.productions = [];
+    db.chargesBoutiques = [];
+    saveDB();
+    showToast('🗑️ Stocks et charges supprimés.', 'warning');
+    setState({ adminTab: 'settings' });
+  });
+
+  document.getElementById('btn-reset-all')?.addEventListener('click', () => {
+    const confirm1 = confirm('💣 ATTENTION ! Vous allez effacer TOUTES les données.\n\nCela supprimera :\n• Toutes les tournées\n• Tous les clients\n• Tous les livreurs\n• Toutes les dépenses\n• Tout le stock\n\nContinuer ?');
+    if(!confirm1) return;
+    const confirm2 = confirm('⚠️ Dernière confirmation : cette action est IRRÉVERSIBLE.\n\nÊtes-vous absolument certain ?');
+    if(!confirm2) return;
+    const usersBackup = { ...db.users };
+    const settingsBackup = { ...db.settings };
+    const licensesBackup = { ...db.licenses };
+    const historyBackup = [...(db.loginHistory||[])];
+    Object.assign(db, {
+      ...defaultDB,
+      users: usersBackup,
+      settings: settingsBackup,
+      licenses: licensesBackup,
+      loginHistory: historyBackup,
+      livraisons: [],
+      depenses: [],
+      stocks: [],
+      charges: [],
+      productions: [],
+      chargesBoutiques: [],
+      clients: {},
+      livreurs: {},
+      boutiques: {},
+      ventesJournalieresVendeur: [],
+      ventesChargeur: [],
+      validations: [],
+      dons: []
+    });
+    saveDB();
+    showToast('💣 Réinitialisation complète effectuée.', 'error', 6000);
+    setState({ adminTab: 'overview' });
+  });
+
   // ── Boutique / Vendeur Events ──
   bindBoutiqueEvents();
 
@@ -4041,6 +4457,14 @@ function buildBoutiquesTab() {
           <button class="btn-secondary btn-gerer-boutique" data-id="${boutiqueId}" style="flex:1;padding:9px;font-size:13px;">⚙️ Gérer</button>
           <button class="btn-primary btn-voir-rapportB" data-id="${boutiqueId}" style="flex:1;padding:9px;font-size:13px;background:linear-gradient(135deg,#7C3AED,#A78BFA);box-shadow:none;">📊 Rapport</button>
         </div>
+        ${vendeursBoutique.length ? `
+        <div style="border-top:1px solid #DDD6FE;padding-top:10px;margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Voir l'espace vendeur</div>
+          ${vendeursBoutique.map(([vUsername, vUser]) => `
+          <button class="btn-switch-view btn-secondary" data-username="${escHTML(vUsername)}" data-role="vendeur" style="padding:8px;font-size:13px;background:#F5F3FF;color:#7C3AED;border:1px solid #DDD6FE;">
+            👁️ ${escHTML(vUser.nom)}
+          </button>`).join('')}
+        </div>` : ''}
       </div>`;
     }).join('')}
   </div>`}
@@ -4120,6 +4544,17 @@ function buildVendeur() {
 
   return `
   <div class="main fade-in" style="max-width:960px;margin:0 auto;padding-bottom:20px;">
+    ${state.adminPrev ? `
+    <div style="background:linear-gradient(135deg,#7C3AED,#A78BFA);border-radius:14px;padding:14px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 4px 16px rgba(124,58,237,.3);">
+      <div style="color:white;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">👁️</span>
+        <div>
+          <div style="font-weight:800;font-size:14px;">Mode Aperçu Admin</div>
+          <div style="font-size:12px;opacity:.85;">Vous voyez l'espace de <strong>${escHTML(u.nom)}</strong></div>
+        </div>
+      </div>
+      <button id="btn-retour-admin" style="padding:10px 20px;background:white;color:#7C3AED;border:none;border-radius:10px;font-family:'Syne';font-size:14px;font-weight:800;cursor:pointer;">← Retour Admin</button>
+    </div>` : ''}
     <div style="background:linear-gradient(135deg,#7C3AED,#A78BFA);padding:28px 32px;border-radius:16px;color:#fff;margin-bottom:28px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.18);">
       <div>
         <div style="font-size:13px;opacity:.85;margin-bottom:5px;">Espace Vendeur — ${escHTML(boutique.nom)}</div>
@@ -4534,6 +4969,8 @@ function sauverJournee(statut) {
   };
 
   if (!db.ventesJournalieresVendeur) db.ventesJournalieresVendeur = [];
+  if (!db.chargeursClients) db.chargeursClients = {};
+  if (!db.ventesChargeur) db.ventesChargeur = [];
   if (existIdx >= 0) db.ventesJournalieresVendeur[existIdx] = record;
   else db.ventesJournalieresVendeur.push(record);
 
@@ -4691,10 +5128,576 @@ function exportCSV() {
 }
 
 // ════════════════════════════════════════════
+// 👑  SUPER ADMIN — GESTION LICENCES & HISTORIQUE
+// ════════════════════════════════════════════
+
+function buildSuperAdmin() {
+  const tab = state.superAdminTab || 'licenses';
+
+  // ── Stats rapides ──
+  const adminUsers = Object.entries(db.users||{}).filter(([,u]) => u.role === 'admin');
+  const licActive = adminUsers.filter(([u]) => {
+    const lic = (db.licenses||{})[u];
+    if(!lic) return false;
+    if(!lic.active) return false;
+    if(lic.expiresAt && new Date(lic.expiresAt) < new Date()) return false;
+    return true;
+  }).length;
+  const licTotal = adminUsers.length;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const logToday = (db.loginHistory||[]).filter(l => new Date(l.loginAt) >= today).length;
+  const logMonth = (db.loginHistory||[]).filter(l => new Date(l.loginAt) >= monthStart).length;
+
+  const sidebar = `
+  <div class="sidebar" style="background:linear-gradient(180deg,#1e1b4b 0%,#312e81 100%);">
+    <div class="sidebar-logo">
+      <div style="font-size:44px;text-align:center;">👑</div>
+      <h2 style="text-align:center;font-size:16px;margin-top:8px;">Super Admin</h2>
+      <p style="text-align:center;opacity:.7;font-size:11px;">Panneau de contrôle global</p>
+    </div>
+    <nav>
+      <button class="nav-btn${tab==='licenses'?' active':''}" data-sa-tab="licenses" style="margin-bottom:4px;">
+        <span class="nav-icon">🔑</span>Gestion des Licences
+      </button>
+      <button class="nav-btn${tab==='history'?' active':''}" data-sa-tab="history">
+        <span class="nav-icon">📅</span>Historique Connexions
+      </button>
+      <button class="nav-btn${tab==='users'?' active':''}" data-sa-tab="users">
+        <span class="nav-icon">👥</span>Comptes Admins
+      </button>
+      <button class="nav-btn${tab==='password'?' active':''}" data-sa-tab="password">
+        <span class="nav-icon">🔒</span>Changer Mot de Passe
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div style="font-size:11px;opacity:.6;margin-bottom:8px;padding:0 4px;" id="live-clock"></div>
+      <div class="user-badge" style="background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.3);">
+        <span style="font-size:11px;opacity:.7;">Connecté en tant que</span>
+        <strong>👑 ${escHTML(state.user.nom)}</strong>
+      </div>
+      <button class="btn-logout" id="btn-logout" style="background:rgba(124,58,237,.25);border-color:rgba(124,58,237,.4);">Déconnexion</button>
+    </div>
+  </div>`;
+
+  let content = '';
+  if(tab === 'licenses') content = buildSALicenses(adminUsers);
+  if(tab === 'history')  content = buildSAHistory();
+  if(tab === 'users')    content = buildSAUsers(adminUsers);
+  if(tab === 'password') content = buildSAPassword();
+
+  return `${sidebar}<div class="main fade-in">${content}</div>${buildModal()}`;
+}
+
+// ── Licences ──
+function buildSALicenses(adminUsers) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const logToday = (db.loginHistory||[]).filter(l => new Date(l.loginAt) >= today).length;
+  const logMonth = (db.loginHistory||[]).filter(l => new Date(l.loginAt) >= monthStart).length;
+  const licActive = adminUsers.filter(([u]) => {
+    const lic = (db.licenses||{})[u];
+    return lic && lic.active && !(lic.expiresAt && new Date(lic.expiresAt) < new Date());
+  }).length;
+
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;">
+    <h1 class="page-title" style="margin-bottom:0;">🔑 Gestion des Licences</h1>
+    <button class="btn-primary" id="btn-sa-add-admin" style="background:linear-gradient(135deg,#7C3AED,#A78BFA);box-shadow:0 4px 14px rgba(124,58,237,.3);">
+      ➕ Créer un Admin
+    </button>
+  </div>
+
+  <div class="kpi-grid" style="margin-bottom:28px;">
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#EDE9FE;">👑</div>
+      <div class="kpi-label">Licences actives</div>
+      <div class="kpi-value" style="color:#7C3AED;">${licActive} / ${adminUsers.length}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#DBEAFE;">📅</div>
+      <div class="kpi-label">Connexions aujourd'hui</div>
+      <div class="kpi-value" style="color:#1D4ED8;">${logToday}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#D1FAE5;">📊</div>
+      <div class="kpi-label">Connexions ce mois</div>
+      <div class="kpi-value" style="color:#059669;">${logMonth}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FEF3C7;">👥</div>
+      <div class="kpi-label">Total admins</div>
+      <div class="kpi-value" style="color:#D97706;">${adminUsers.length}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>📋 Licences Administrateurs</span>
+    </div>
+    ${adminUsers.length === 0 ? `
+      <div class="empty"><div class="empty-icon">🔑</div><p>Aucun compte admin trouvé</p></div>
+    ` : `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Admin</th>
+          <th>Username</th>
+          <th>Statut</th>
+          <th>Expiration</th>
+          <th>Note</th>
+          <th class="right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${adminUsers.map(([username, user]) => {
+          const lic = (db.licenses||{})[username] || { active: false };
+          const expired = lic.expiresAt && new Date(lic.expiresAt) < new Date();
+          const isActive = lic.active && !expired;
+          let statusBadge;
+          if(!lic.active) statusBadge = `<span class="badge" style="background:#FEE2E2;color:#991B1B;">🚫 Désactivée</span>`;
+          else if(expired) statusBadge = `<span class="badge" style="background:#FEF3C7;color:#92400E;">⏰ Expirée</span>`;
+          else statusBadge = `<span class="badge" style="background:#D1FAE5;color:#065F46;">✅ Active</span>`;
+          const todayLogs = (db.loginHistory||[]).filter(l => l.username===username && new Date(l.loginAt)>=today).length;
+          return `
+          <tr>
+            <td>
+              <div style="font-weight:700;">${escHTML(user.nom)}</div>
+              <div style="font-size:11px;color:var(--muted);">Connexions aujourd'hui : <b>${todayLogs}</b></div>
+            </td>
+            <td><code style="background:var(--bg);padding:3px 8px;border-radius:6px;">@${escHTML(username)}</code></td>
+            <td>${statusBadge}</td>
+            <td style="font-size:13px;">${lic.expiresAt ? fdate(lic.expiresAt) : '<span style="color:var(--muted);">Illimitée</span>'}</td>
+            <td style="font-size:13px;color:var(--muted);">${escHTML(lic.note||'—')}</td>
+            <td class="right">
+              <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+                <button class="btn-sa-edit-lic btn-secondary" data-username="${escHTML(username)}" style="padding:8px 14px;font-size:13px;">✏️ Modifier</button>
+                ${isActive
+                  ? `<button class="btn-sa-toggle-lic btn-secondary" data-username="${escHTML(username)}" data-action="deactivate" style="padding:8px 14px;font-size:13px;background:#FEE2E2;color:#991B1B;">🚫 Désactiver</button>`
+                  : `<button class="btn-sa-toggle-lic btn-secondary" data-username="${escHTML(username)}" data-action="activate" style="padding:8px 14px;font-size:13px;background:#D1FAE5;color:#065F46;">✅ Activer</button>`
+                }
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`}
+  </div>`;
+}
+
+// ── Historique connexions ──
+function buildSAHistory() {
+  const logs = (db.loginHistory||[]);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  // Stats par utilisateur ce mois
+  const statsByUser = {};
+  logs.forEach(l => {
+    if(!statsByUser[l.username]) statsByUser[l.username] = { nom: l.userNom, role: l.userRole, today: 0, month: 0, total: 0 };
+    statsByUser[l.username].total++;
+    const ld = new Date(l.loginAt);
+    if(ld >= monthStart) statsByUser[l.username].month++;
+    if(ld >= today) statsByUser[l.username].today++;
+  });
+
+  // Chart 7 derniers jours
+  const week = [];
+  for(let i=6;i>=0;i--) {
+    const d = new Date(today.getTime() - i*86400000);
+    const next = new Date(d.getTime() + 86400000);
+    const count = logs.filter(l => { const ld = new Date(l.loginAt); return ld >= d && ld < next; }).length;
+    week.push({ jour: d.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit'}), count });
+  }
+  const maxW = Math.max(...week.map(w=>w.count), 1);
+
+  // Filtre
+  const filterUser = state.saHistoryFilter || '';
+  const filterRole = state.saHistoryRole || '';
+  let filtered = logs;
+  if(filterUser) filtered = filtered.filter(l => l.username === filterUser);
+  if(filterRole) filtered = filtered.filter(l => l.userRole === filterRole);
+
+  return `
+  <h1 class="page-title" style="margin-bottom:28px;">📅 Historique des Connexions</h1>
+
+  <!-- Stats par utilisateur -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="card-title">📊 Résumé par Administrateur</div>
+    ${Object.keys(statsByUser).length === 0 ? `<div class="empty"><div class="empty-icon">📊</div><p>Aucune connexion enregistrée</p></div>` : `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Utilisateur</th>
+          <th>Rôle</th>
+          <th class="right">Aujourd'hui</th>
+          <th class="right">Ce mois</th>
+          <th class="right">Total</th>
+          <th class="right">Voir détail</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${Object.entries(statsByUser).map(([username, s]) => `
+        <tr>
+          <td><strong>${escHTML(s.nom)}</strong><br><span style="font-size:11px;color:var(--muted);">@${escHTML(username)}</span></td>
+          <td><span class="badge" style="${s.role==='admin'?'background:#EDE9FE;color:#6D28D9;':'background:#D1FAE5;color:#065F46;'}">${s.role}</span></td>
+          <td class="right"><strong style="color:${s.today>0?'var(--gold)':'var(--muted)'};">${s.today}</strong></td>
+          <td class="right"><strong style="color:var(--green);">${s.month}</strong></td>
+          <td class="right"><strong>${s.total}</strong></td>
+          <td class="right">
+            <button class="btn-secondary btn-sa-filter-user" data-username="${escHTML(username)}" style="padding:7px 14px;font-size:13px;">🔍 Filtrer</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`}
+  </div>
+
+  <!-- Graphe 7 jours -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="card-title">📈 Connexions — 7 derniers jours</div>
+    <div style="display:flex;align-items:flex-end;gap:10px;height:140px;padding:0 8px;">
+      ${week.map(w => {
+        const h = Math.max(6, Math.round((w.count / maxW) * 120));
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <div style="font-size:12px;font-weight:700;color:var(--dark);">${w.count||''}</div>
+          <div style="width:100%;height:${h}px;background:linear-gradient(180deg,#7C3AED,#A78BFA);border-radius:8px 8px 0 0;min-height:6px;"></div>
+          <div style="font-size:10px;color:var(--muted);text-align:center;">${w.jour}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+
+  <!-- Liste détaillée -->
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+      <span>🕐 Journal détaillé ${filterUser ? `— @${escHTML(filterUser)}` : '(tous)'}</span>
+      <div style="display:flex;gap:8px;">
+        ${filterUser ? `<button class="btn-secondary" id="btn-sa-clear-filter" style="padding:8px 14px;font-size:13px;">✕ Effacer filtre</button>` : ''}
+        <select id="sa-log-role-filter" class="form-select" style="width:auto;padding:8px 12px;font-size:13px;">
+          <option value="">Tous les rôles</option>
+          <option value="admin" ${state.saHistoryRole==='admin'?'selected':''}>Admin</option>
+          <option value="chargeur" ${state.saHistoryRole==='chargeur'?'selected':''}>Chargeur</option>
+          <option value="vendeur" ${state.saHistoryRole==='vendeur'?'selected':''}>Vendeur</option>
+        </select>
+      </div>
+    </div>
+    ${filtered.length === 0 ? `<div class="empty"><div class="empty-icon">📋</div><p>Aucune connexion enregistrée</p></div>` : `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Date & Heure</th>
+          <th>Utilisateur</th>
+          <th>Rôle</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filtered.slice(0, 150).map(l => {
+          const ld = new Date(l.loginAt);
+          const isToday2 = ld >= today;
+          return `<tr>
+            <td>
+              <div style="font-weight:600;${isToday2?'color:var(--gold);':''}">
+                ${isToday2 ? '🟢 ' : ''}${ld.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})}
+              </div>
+              <div style="font-size:12px;color:var(--muted);">${ld.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>
+            </td>
+            <td><strong>${escHTML(l.userNom)}</strong><br><span style="font-size:11px;color:var(--muted);">@${escHTML(l.username)}</span></td>
+            <td><span class="badge" style="${l.userRole==='admin'?'background:#EDE9FE;color:#6D28D9;':'background:#D1FAE5;color:#065F46;'}">${l.userRole}</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    ${filtered.length > 150 ? `<div style="text-align:center;padding:16px;font-size:13px;color:var(--muted);">... et ${filtered.length-150} entrées supplémentaires</div>` : ''}`}
+  </div>`;
+}
+
+// ── Comptes Admins ──
+function buildSAUsers(adminUsers) {
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;">
+    <h1 class="page-title" style="margin-bottom:0;">👥 Comptes Administrateurs</h1>
+    <button class="btn-primary" id="btn-sa-add-admin" style="background:linear-gradient(135deg,#7C3AED,#A78BFA);box-shadow:0 4px 14px rgba(124,58,237,.3);">
+      ➕ Créer un Admin
+    </button>
+  </div>
+  <div class="card">
+    <div class="card-title">Liste des Administrateurs</div>
+    ${adminUsers.length === 0 ? `<div class="empty"><div class="empty-icon">👤</div><p>Aucun compte admin</p></div>` : `
+    <table class="data-table">
+      <thead><tr><th>Nom</th><th>Username</th><th>Créé le</th><th>Licence</th><th class="right">Actions</th></tr></thead>
+      <tbody>
+        ${adminUsers.map(([username, user]) => {
+          const lic = (db.licenses||{})[username];
+          const isActive = lic && lic.active && !(lic.expiresAt && new Date(lic.expiresAt) < new Date());
+          return `<tr>
+            <td><strong>${escHTML(user.nom)}</strong></td>
+            <td><code style="background:var(--bg);padding:3px 8px;border-radius:6px;">@${escHTML(username)}</code></td>
+            <td style="font-size:13px;">${user.createdAt ? fdate(user.createdAt) : '—'}</td>
+            <td>${isActive ? '<span class="badge" style="background:#D1FAE5;color:#065F46;">✅ Active</span>' : '<span class="badge" style="background:#FEE2E2;color:#991B1B;">🚫 Inactive</span>'}</td>
+            <td class="right">
+              <button class="btn-sa-change-pass btn-secondary" data-username="${escHTML(username)}" data-nom="${escHTML(user.nom)}" style="padding:8px 14px;font-size:13px;">🔑 MDP</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`}
+  </div>`;
+}
+
+// ── Changer MDP Super Admin ──
+function buildSAPassword() {
+  return `
+  <h1 class="page-title" style="margin-bottom:28px;">🔒 Changer Mot de Passe</h1>
+  <div class="card" style="max-width:480px;">
+    <div class="card-title">Modifier le mot de passe Super Admin</div>
+    <div class="form-group">
+      <label class="form-label">Mot de passe actuel</label>
+      <input id="sa-pass-current" class="form-input" type="password" placeholder="••••••••"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nouveau mot de passe</label>
+      <input id="sa-pass-new" class="form-input" type="password" placeholder="••••••••"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirmer nouveau mot de passe</label>
+      <input id="sa-pass-confirm" class="form-input" type="password" placeholder="••••••••"/>
+    </div>
+    <div id="sa-pass-error" style="display:none;" class="alert-error"></div>
+    <button class="btn-primary" id="btn-sa-save-pass" style="background:linear-gradient(135deg,#7C3AED,#A78BFA);width:100%;justify-content:center;">💾 Enregistrer</button>
+  </div>`;
+}
+
+// ── Modal Super Admin (Licence) ──
+function buildSALicenseModal() {
+  const username = state.saEditUsername || '';
+  const user = (db.users||{})[username] || {};
+  const lic = (db.licenses||{})[username] || { active: true, expiresAt: '', note: '' };
+  return `
+  <div class="modal-backdrop" id="sa-modal-backdrop">
+    <div class="modal-box">
+      <button class="modal-close" id="sa-modal-close">✕</button>
+      <div class="modal-title">🔑 Licence — @${escHTML(username)}</div>
+      <div style="margin-bottom:14px;padding:12px;background:#EDE9FE;border-radius:10px;font-size:13px;">
+        <strong>${escHTML(user.nom||username)}</strong> · Rôle: Admin
+      </div>
+      <div class="form-group">
+        <label class="form-label">Statut de la licence</label>
+        <select id="sa-lic-active" class="form-select">
+          <option value="1" ${lic.active?'selected':''}>✅ Activée</option>
+          <option value="0" ${!lic.active?'selected':''}>🚫 Désactivée</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date d'expiration (laisser vide = illimitée)</label>
+        <input id="sa-lic-expiry" class="form-input" type="date" value="${lic.expiresAt ? lic.expiresAt.slice(0,10) : ''}"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Note / Description</label>
+        <input id="sa-lic-note" class="form-input" type="text" placeholder="ex: Licence mensuelle, Client X..." value="${escHTML(lic.note||'')}"/>
+      </div>
+      <div class="form-actions">
+        <button class="btn-secondary" id="sa-modal-cancel">Annuler</button>
+        <button class="btn-primary" id="sa-modal-save" style="background:linear-gradient(135deg,#7C3AED,#A78BFA);">💾 Enregistrer</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Modal Créer Admin ──
+function buildSAAddAdminModal() {
+  return `
+  <div class="modal-backdrop" id="sa-modal-backdrop">
+    <div class="modal-box">
+      <button class="modal-close" id="sa-modal-close">✕</button>
+      <div class="modal-title">➕ Créer un compte Admin</div>
+      <div class="form-group">
+        <label class="form-label">Nom complet</label>
+        <input id="sa-new-nom" class="form-input" type="text" placeholder="ex: Amadou Diallo"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nom d'utilisateur (username)</label>
+        <input id="sa-new-username" class="form-input" type="text" placeholder="ex: amadou"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mot de passe</label>
+        <input id="sa-new-pass" class="form-input" type="password" placeholder="••••••••"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date d'expiration (optionnel)</label>
+        <input id="sa-new-expiry" class="form-input" type="date"/>
+      </div>
+      <div id="sa-add-error" style="display:none;" class="alert-error"></div>
+      <div class="form-actions">
+        <button class="btn-secondary" id="sa-modal-cancel">Annuler</button>
+        <button class="btn-primary" id="sa-add-admin-save" style="background:linear-gradient(135deg,#7C3AED,#A78BFA);">✅ Créer</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindSuperAdminEvents() {
+  // Tabs
+  document.querySelectorAll('[data-sa-tab]').forEach(btn => {
+    btn.addEventListener('click', () => setState({ superAdminTab: btn.dataset.saTab }));
+  });
+
+  // Logout
+  document.getElementById('btn-logout')?.addEventListener('click', () => {
+    setState({ view:'login', user:null, superAdminTab:'licenses', loginError:'' });
+  });
+
+  // Clock
+  startClock();
+
+  // Licence : éditer
+  document.querySelectorAll('.btn-sa-edit-lic').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setState({ saEditUsername: btn.dataset.username, modal: 'saLicenseModal' });
+      const modalContainer = document.getElementById('sa-extra-modal');
+      if(modalContainer) { modalContainer.innerHTML = buildSALicenseModal(); bindSAModalEvents(); }
+    });
+  });
+
+  // Licence : toggle rapide
+  document.querySelectorAll('.btn-sa-toggle-lic').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const u = btn.dataset.username;
+      const action = btn.dataset.action;
+      if(!db.licenses) db.licenses = {};
+      if(!db.licenses[u]) db.licenses[u] = { active: false, expiresAt: null, note: '' };
+      db.licenses[u].active = action === 'activate';
+      saveDB();
+      showToast(action==='activate' ? `✅ Licence de @${u} activée !` : `🚫 Licence de @${u} désactivée.`, action==='activate'?'success':'warning');
+      setState({});
+    });
+  });
+
+  // Filtre historique par user
+  document.querySelectorAll('.btn-sa-filter-user').forEach(btn => {
+    btn.addEventListener('click', () => setState({ saHistoryFilter: btn.dataset.username, superAdminTab: 'history' }));
+  });
+
+  // Effacer filtre
+  document.getElementById('btn-sa-clear-filter')?.addEventListener('click', () => setState({ saHistoryFilter: '' }));
+
+  // Filtre par rôle
+  document.getElementById('sa-log-role-filter')?.addEventListener('change', e => {
+    setState({ saHistoryRole: e.target.value });
+  });
+
+  // Changer MDP superadmin
+  document.getElementById('btn-sa-save-pass')?.addEventListener('click', () => {
+    const cur = document.getElementById('sa-pass-current').value;
+    const nw = document.getElementById('sa-pass-new').value;
+    const conf = document.getElementById('sa-pass-confirm').value;
+    const errDiv = document.getElementById('sa-pass-error');
+    const showErr = (msg) => { errDiv.style.display='flex'; errDiv.innerHTML=`⚠️ ${msg}`; };
+    errDiv.style.display = 'none';
+    if(cur !== db.users.superadmin.password) return showErr('Mot de passe actuel incorrect.');
+    if(nw.length < 6) return showErr('Le nouveau mot de passe doit faire au moins 6 caractères.');
+    if(nw !== conf) return showErr('Les mots de passe ne correspondent pas.');
+    db.users.superadmin.password = nw;
+    saveDB();
+    showToast('🔒 Mot de passe Super Admin modifié avec succès !', 'success');
+    document.getElementById('sa-pass-current').value = '';
+    document.getElementById('sa-pass-new').value = '';
+    document.getElementById('sa-pass-confirm').value = '';
+  });
+
+  // Changer MDP d'un admin
+  document.querySelectorAll('.btn-sa-change-pass').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const username = btn.dataset.username;
+      const nom = btn.dataset.nom;
+      const newPass = prompt(`Nouveau mot de passe pour ${nom} (@${username}):`);
+      if(!newPass) return;
+      if(newPass.length < 3) return showToast('Mot de passe trop court (min 3 car.)', 'error');
+      db.users[username].password = newPass;
+      saveDB();
+      showToast(`🔑 Mot de passe de @${username} modifié !`, 'success');
+    });
+  });
+
+  // Créer admin
+  document.getElementById('btn-sa-add-admin')?.addEventListener('click', () => {
+    const modalContainer = document.getElementById('sa-extra-modal');
+    if(modalContainer) { modalContainer.innerHTML = buildSAAddAdminModal(); bindSAModalEvents(); }
+  });
+}
+
+function bindSAModalEvents() {
+  document.getElementById('sa-modal-close')?.addEventListener('click', () => {
+    const mc = document.getElementById('sa-extra-modal');
+    if(mc) mc.innerHTML = '';
+  });
+  document.getElementById('sa-modal-cancel')?.addEventListener('click', () => {
+    const mc = document.getElementById('sa-extra-modal');
+    if(mc) mc.innerHTML = '';
+  });
+  document.getElementById('sa-modal-backdrop')?.addEventListener('click', e => {
+    if(e.target.id === 'sa-modal-backdrop') { const mc = document.getElementById('sa-extra-modal'); if(mc) mc.innerHTML = ''; }
+  });
+
+  // Save licence
+  document.getElementById('sa-modal-save')?.addEventListener('click', () => {
+    const u = state.saEditUsername;
+    if(!u) return;
+    if(!db.licenses) db.licenses = {};
+    const active = document.getElementById('sa-lic-active').value === '1';
+    const expiry = document.getElementById('sa-lic-expiry').value;
+    const note = document.getElementById('sa-lic-note').value.trim();
+    db.licenses[u] = {
+      active,
+      expiresAt: expiry ? new Date(expiry).toISOString() : null,
+      note,
+      updatedAt: new Date().toISOString(),
+      createdAt: (db.licenses[u]||{}).createdAt || new Date().toISOString()
+    };
+    saveDB();
+    showToast(`✅ Licence de @${u} mise à jour !`, 'success');
+    const mc = document.getElementById('sa-extra-modal');
+    if(mc) mc.innerHTML = '';
+    setState({});
+  });
+
+  // Save nouvel admin
+  document.getElementById('sa-add-admin-save')?.addEventListener('click', () => {
+    const nom = document.getElementById('sa-new-nom').value.trim();
+    const username = document.getElementById('sa-new-username').value.trim().toLowerCase();
+    const pass = document.getElementById('sa-new-pass').value;
+    const expiry = document.getElementById('sa-new-expiry').value;
+    const errDiv = document.getElementById('sa-add-error');
+    const showErr = (m) => { errDiv.style.display='flex'; errDiv.innerHTML=`⚠️ ${m}`; };
+    errDiv.style.display='none';
+    if(!nom) return showErr('Le nom est obligatoire.');
+    if(!username) return showErr("Le nom d'utilisateur est obligatoire.");
+    if(!pass || pass.length < 3) return showErr('Mot de passe trop court (min 3 car.).');
+    if(db.users[username]) return showErr("Ce nom d'utilisateur existe déjà.");
+    db.users[username] = { role:'admin', nom, password: pass, createdAt: new Date().toISOString() };
+    if(!db.licenses) db.licenses = {};
+    db.licenses[username] = {
+      active: true,
+      expiresAt: expiry ? new Date(expiry).toISOString() : null,
+      note: 'Créé par Super Admin',
+      createdAt: new Date().toISOString()
+    };
+    saveDB();
+    showToast(`✅ Admin @${username} créé avec succès !`, 'success');
+    const mc = document.getElementById('sa-extra-modal');
+    if(mc) mc.innerHTML = '';
+    setState({});
+  });
+}
+
+// ════════════════════════════════════════════
 // 🚀  MAIN BUILD
 // ════════════════════════════════════════════
 function buildApp(){
   if(state.view==='login') return buildLogin();
+  if(state.view==='superadmin') {
+    const sa = buildSuperAdmin();
+    return `<div id="root-inner" style="display:flex;min-height:100vh;">${sa}</div><div id="sa-extra-modal"></div>`;
+  }
   if(state.view==='admin') return `<div id="root-inner" style="display:flex;min-height:100vh;">${buildAdmin()}</div>`;
   if(state.view==='livreur') return buildLivreur();
   if(state.view==='chargeur') return buildChargeur();

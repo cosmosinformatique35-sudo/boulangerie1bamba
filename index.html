@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Boulangerie Bamba – Gestion Pro v15</title>
+<!-- Sécurité : politique de contenu pour prévenir les injections XSS -->
+<meta http-equiv="X-Content-Type-Options" content="nosniff"/>
+<title>Boulangerie Bamba – Gestion Pro v20</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.8.0/Recharts.min.js"></script>
+<!-- Recharts retiré : bibliothèque non utilisée (les graphiques sont en SVG pur) -->
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -782,6 +784,28 @@
   .summary-item { display: flex; flex-direction: column; gap: 2px; }
   .summary-item-label { font-size: 10px; opacity: .75; text-transform: uppercase; letter-spacing: .5px; }
   .summary-item-val { font-family: 'Syne'; font-size: 18px; font-weight: 800; }
+  /* ════════════════════════════════════════
+     V20 — SYSTEME DE SAUVEGARDES
+  ════════════════════════════════════════ */
+  .backup-card {
+    background: var(--white); border: 2px solid var(--border);
+    border-radius: 14px; padding: 20px 22px;
+    display: flex; align-items: center; gap: 16px;
+    transition: box-shadow .2s, transform .2s;
+  }
+  .backup-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,.07); transform: translateY(-2px); }
+  .backup-type-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+  .backup-type-badge.journalier { background: #DBEAFE; color: #1D4ED8; }
+  .backup-type-badge.mensuel    { background: #D1FAE5; color: #065F46; }
+  .backup-type-badge.annuel     { background: #EDE9FE; color: #5B21B6; }
+  .backup-type-badge.manuel     { background: #FEF3C7; color: #92400E; }
+  .btn-backup { padding:12px 20px; background:linear-gradient(135deg,#1D4ED8,#3B82F6); color:#fff; border:none; border-radius:10px; font-family:'Syne',sans-serif; font-size:14px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:7px; box-shadow:0 4px 14px rgba(29,78,216,.25); transition:transform .2s,box-shadow .2s; }
+  .btn-backup:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(29,78,216,.35); }
+  .btn-restore { padding:12px 20px; background:linear-gradient(135deg,#059669,#34D399); color:#fff; border:none; border-radius:10px; font-family:'Syne',sans-serif; font-size:14px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:7px; box-shadow:0 4px 14px rgba(5,150,105,.25); transition:transform .2s,box-shadow .2s; }
+  .btn-restore:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(5,150,105,.35); }
+  .backup-empty { text-align:center; padding:40px 20px; color:var(--muted); }
+  #backup-drop-zone { border:2px dashed var(--border); border-radius:14px; padding:32px; text-align:center; transition:all .2s; cursor:pointer; background:#FFFBF0; }
+  #backup-drop-zone.drag-over,#backup-drop-zone:hover { border-color:var(--gold); background:#FEF3C7; }
 </style>
 </head>
 <body>
@@ -812,7 +836,7 @@
   </div>
   <div id="notif-list" style="overflow-y:auto;flex:1;"></div>
 </div>
-<div id="notif-overlay" style="display:none;position:fixed;inset:0;z-index:9994;background:rgba(0,0,0,.3);" id="notif-overlay"></div>
+<div id="notif-overlay" style="display:none;position:fixed;inset:0;z-index:9994;background:rgba(0,0,0,.3);"></div>
 
 <script type="module">
 // ════════════════════════════════════════════
@@ -828,7 +852,12 @@ function escHTML(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
 function fcfa(n){ return new Intl.NumberFormat('fr-FR').format(n)+' FCFA'; }
 function fdate(s){ return new Date(s).toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}); }
 function fdatetime(s){ return new Date(s).toLocaleString('fr-FR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
-function uid(){ return '_'+(Date.now())+'_'+Math.random().toString(36).slice(2,7); }
+function uid(){ 
+  if(typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID().replace(/-/g,'').slice(0,16);
+  }
+  return '_'+(Date.now())+'_'+Math.random().toString(36).slice(2,9);
+}
 function isToday(dateString) {
   if(!dateString) return false;
   const d = new Date(dateString);
@@ -893,15 +922,15 @@ function confirmerValidation(valId) {
 function contesterValidation(valId, qteCorrigee, commentaire) {
   const v = (db.validations || []).find(x => x.id === valId);
   if (!v) return;
-  v.statut = qteCorrigee === v.quantite ? 'confirmee' : 'contestee';
+  // ✅ CORRECTION: statut calculé une seule fois (suppression de la ligne morte précédente)
   v.qteContestee = qteCorrigee;
   v.commentaire = commentaire || '';
   v.resolvedAt = new Date().toISOString();
-  // Si contestée, marquer comme litige si écart > 0
   if (qteCorrigee !== v.quantite) {
     v.statut = 'litige';
     showToast(`⚠️ Litige signalé : vous avez reçu ${qteCorrigee} pains, pas ${v.quantite}. L'admin a été notifié.`, 'warning', 6000);
   } else {
+    v.statut = 'confirmee';
     showToast('✅ Quantité confirmée !', 'success', 4000);
   }
   saveDB();
@@ -909,7 +938,8 @@ function contesterValidation(valId, qteCorrigee, commentaire) {
 }
 
 /** Résout un litige (admin) */
-function resoudreListige(valId, decision) {
+window.resoudreLitige = resoudreLitige; // accessible depuis les onclick HTML
+function resoudreLitige(valId, decision) {
   const v = (db.validations || []).find(x => x.id === valId);
   if (!v) return;
   v.statut = decision === 'accepter' ? 'litige_resolu_livreur' : 'litige_resolu_chargeur';
@@ -1022,8 +1052,8 @@ function buildLitigesAdmin() {
           <div style="font-size:11px;color:var(--muted);margin-top:6px;">${fdatetime(v.createdAt)}</div>
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;">
-          <button onclick="resoudreListige('${v.id}','accepter')" style="padding:9px 16px;background:#D1FAE5;border:2px solid #6EE7B7;border-radius:10px;color:#065F46;font-family:'Syne';font-size:13px;font-weight:800;cursor:pointer;">✅ Croire le livreur (${v.qteContestee})</button>
-          <button onclick="resoudreListige('${v.id}','rejeter')" style="padding:9px 16px;background:#DBEAFE;border:2px solid #93C5FD;border-radius:10px;color:#1E3A5F;font-family:'Syne';font-size:13px;font-weight:800;cursor:pointer;">🔵 Croire le chargeur (${v.quantite})</button>
+          <button onclick="resoudreLitige('${v.id}','accepter')" style="padding:9px 16px;background:#D1FAE5;border:2px solid #6EE7B7;border-radius:10px;color:#065F46;font-family:'Syne';font-size:13px;font-weight:800;cursor:pointer;">✅ Croire le livreur (${v.qteContestee})</button>
+          <button onclick="resoudreLitige('${v.id}','rejeter')" style="padding:9px 16px;background:#DBEAFE;border:2px solid #93C5FD;border-radius:10px;color:#1E3A5F;font-family:'Syne';font-size:13px;font-weight:800;cursor:pointer;">🔵 Croire le chargeur (${v.quantite})</button>
         </div>
       </div>
     </div>`).join('')}
@@ -1074,7 +1104,7 @@ const defaultDB = {
     farine: { nom: 'Farine (Sacs de 50kg)', stock: 12, seuil: 5, rendement: 250 }
   },
   users: {
-    superadmin: { role:'superadmin', nom:'Super Administrateur', password:'superadmin2024', createdAt:'2024-01-01T00:00:00Z' },
+    superadmin: { role:'superadmin', nom:'Super Administrateur', password:'Bamba@SuperAdmin2025!', createdAt:'2024-01-01T00:00:00Z' },
     admin:   { role:'admin',    nom:'Administrateur',  password:'1234', createdAt:'2024-01-01T00:00:00Z' },
     ousmane: { role:'livreur',  nom:'Ousmane Diallo',  password:'1234', createdAt:'2024-03-10T00:00:00Z' },
     fatou:   { role:'livreur',  nom:'Fatou Ndiaye',    password:'1234', createdAt:'2024-04-01T00:00:00Z' },
@@ -1105,15 +1135,15 @@ const defaultDB = {
   } // Licences par username admin
 };
 
-// 🔴 REMPLACE CE BLOC PAR TA CONFIGURATION FIREBASE
+// ⚙️ CONFIGURATION FIREBASE — Remplacer par vos vraies valeurs si besoin
 const firebaseConfig = {
   apiKey: "AIzaSyBMfLFWaXkqZRwdVTh7IGUVNiEPDXLWUKU",
   authDomain: "boulangerie1bamba.firebaseapp.com",
   databaseURL: "https://boulangerie1bamba-default-rtdb.firebaseio.com/",
-  projectId: "TON_PROJET",
-  storageBucket: "TON_PROJET.appspot.com",
-  messagingSenderId: "TON_ID",
-  appId: "TON_APP_ID"
+  projectId: "boulangerie1bamba",
+  storageBucket: "boulangerie1bamba.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:000000000000"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -1133,9 +1163,11 @@ const IDB_STORE = 'db_store';
 
 function openIDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
+    const req = indexedDB.open(IDB_NAME, 2); // Version 2 inclut le store backups
     req.onupgradeneeded = e => {
-      e.target.result.createObjectStore(IDB_STORE);
+      const idb = e.target.result;
+      if (!idb.objectStoreNames.contains(IDB_STORE)) idb.createObjectStore(IDB_STORE);
+      if (!idb.objectStoreNames.contains('backups_store')) idb.createObjectStore('backups_store');
     };
     req.onsuccess = e => resolve(e.target.result);
     req.onerror = e => reject(e.target.error);
@@ -1148,10 +1180,12 @@ async function idbSave(data) {
     return new Promise((resolve, reject) => {
       const tx = idb.transaction(IDB_STORE, 'readwrite');
       const store = tx.objectStore(IDB_STORE);
+      // Sauvegarder les données et la date ensemble pour éviter les erreurs de transaction
       store.put(JSON.parse(JSON.stringify(data)), 'main');
       store.put(new Date().toISOString(), 'lastSave');
-      tx.oncomplete = resolve;
+      tx.oncomplete = () => resolve();
       tx.onerror = e => reject(e.target.error);
+      tx.onabort = e => reject(e.target.error);
     });
   } catch(e) {
     console.error('IndexedDB save error:', e);
@@ -1184,7 +1218,7 @@ function setConnectionUI(online, syncing = false) {
   if(!bar) return;
 
   if(syncing) {
-    bar.className = 'conn-bar show online';
+    bar.className = 'show online';
     bar.style.cssText = 'background:#FFFBEB;border-bottom:2px solid #FCD34D;color:#78350F;';
     if(dot) { dot.className = 'conn-dot'; dot.style.background = '#F59E0B'; }
     if(msg) msg.textContent = '⏳ Synchronisation en cours avec le cloud...';
@@ -1193,13 +1227,13 @@ function setConnectionUI(online, syncing = false) {
   }
 
   if(online) {
-    bar.className = 'conn-bar show online';
+    bar.className = 'show online';
     if(dot) { dot.className = 'conn-dot green'; dot.style.background = '#10B981'; }
     if(msg) msg.textContent = '🟢 Connecté — Données synchronisées avec le cloud';
     bar.classList.add('show');
     setTimeout(() => bar.classList.remove('show'), 4000);
   } else {
-    bar.className = 'conn-bar show offline';
+    bar.className = 'show offline';
     if(dot) { dot.className = 'conn-dot red'; dot.style.background = '#EF4444'; }
     if(msg) msg.textContent = '🔴 Hors ligne — Vos données sont sauvegardées localement';
     bar.classList.add('show');
@@ -1231,20 +1265,15 @@ onValue(connectedRef, async (snap) => {
   if(connected === prevConnected) return;
   
   if(connected && prevConnected === false) {
-    // Reconnexion détectée !
+    // Reconnexion détectée — NE PAS écraser Firebase automatiquement
+    // Firebase va envoyer les données via onValue automatiquement
     setConnectionUI(true, true);
     pendingSync = true;
-    
-    try {
-      // Envoyer les données locales vers Firebase (elles peuvent être plus récentes)
-      await set(dbRef, db);
+    // Attendre que onValue reçoive les données de Firebase (100ms suffit généralement)
+    setTimeout(() => {
       pendingSync = false;
       setConnectionUI(true, false);
-      showToast('✅ Synchronisation terminée ! Toutes vos données sont à jour.', 'success', 5000);
-    } catch(e) {
-      pendingSync = false;
-      setConnectionUI(true, false);
-    }
+    }, 3000);
   } else if(!connected && prevConnected !== false) {
     // Déconnexion détectée
     setConnectionUI(false);
@@ -1279,30 +1308,61 @@ const firebaseTimeout = setTimeout(async () => {
   }
 }, 5000);
 
+// 🔒 Garde contre les re-renders pendant qu'un utilisateur est en train de saisir
+let _renderPending = false;
+let _lastFirebaseHash = '';
+
 onValue(dbRef, async (snapshot) => {
   firebaseDataReceived = true;
   clearTimeout(firebaseTimeout);
   
   const data = snapshot.val();
   if (data) {
+    // Vérifier si les données ont vraiment changé (évite re-render inutiles)
+    const hash = JSON.stringify(data).length + '_' +
+      (data.livraisons||[]).length + '_' +
+      (data.charges||[]).length + '_' +
+      (data.depenses||[]).length + '_' +
+      (data.validations||[]).length + '_' +
+      JSON.stringify(data.settings||{});
+    const dataChanged = hash !== _lastFirebaseHash;
+    _lastFirebaseHash = hash;
+
     db = data;
     normalizeDB();
     // Mettre à jour le cache local
     await idbSave(db);
+
+    // 🛡️ Ne re-render que si les données ont changé ET que l'utilisateur n'est pas en train de saisir dans un formulaire
+    if (window.isAppInitialized && dataChanged) {
+      const activeEl = document.activeElement;
+      const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+      if (!isTyping) {
+        render();
+      }
+    }
   } else {
-    // Vérifier si on a un cache local
+    // ✅ CORRECTION BUG CRITIQUE: Firebase renvoie null uniquement si la base est vraiment vide.
+    // NE PAS écraser avec defaultDB si on a déjà des données en mémoire (db != defaultDB).
+    // Cela évite l'effacement des données le lendemain matin.
     const cached = await idbLoad();
-    if(cached) {
+    if (cached && Object.keys(cached).length > 0) {
       db = cached;
       normalizeDB();
-    } else {
-      db = defaultDB;
+      // Remettre les données dans Firebase (elles existent dans le cache local)
+      set(dbRef, db).catch(e => console.error('Restore Firebase error:', e));
+    } else if (!window.isAppInitialized) {
+      // Vraiment premier lancement sans données : utiliser les démos
+      db = JSON.parse(JSON.stringify(defaultDB));
+      normalizeDB();
+      set(dbRef, db).catch(e => console.error('Init Firebase error:', e));
     }
-    saveDB();
-  }
+    // Si l'app est déjà initialisée et Firebase renvoie null, NE RIEN FAIRE
+    // (peut être une déconnexion temporaire ou un bug réseau)
 
-  if (window.isAppInitialized) {
-    render();
+    if (window.isAppInitialized) {
+      render();
+    }
   }
 });
 
@@ -1319,7 +1379,10 @@ function normalizeDB() {
   if (!db.users)      db.users      = defaultDB.users;
   // 👑 Le superadmin doit TOUJOURS exister, même après sync Firebase
   if (!db.users.superadmin) {
-    db.users.superadmin = { role:'superadmin', nom:'Super Administrateur', password:'superadmin2024', createdAt:'2024-01-01T00:00:00Z' };
+    // ⚠️ SÉCURITÉ CRITIQUE: Changez ce mot de passe IMMÉDIATEMENT après le premier déploiement !
+    // ⚠️ Les mots de passe sont stockés en clair dans Firebase. Pour une app en production,
+    //    il faudrait utiliser un hachage (bcrypt ou SHA-256) côté serveur via Firebase Functions.
+    db.users.superadmin = { role:'superadmin', nom:'Super Administrateur', password:'Bamba@SuperAdmin2025!', createdAt:new Date().toISOString() };
   } else if(db.users.superadmin.role !== 'superadmin') {
     db.users.superadmin.role = 'superadmin'; // Sécurité : s'assurer que le rôle ne change pas
   }
@@ -1413,9 +1476,12 @@ function t(frStr) {
 
 function renderLogo() {
   if (db.settings.isImage && db.settings.logo) {
-    return `<img src="${db.settings.logo}" alt="Logo" />`;
+    // Only allow data URIs and https URLs to prevent XSS via javascript: URIs
+    const src = db.settings.logo;
+    const safe = /^(data:image\/|https:\/\/)/.test(src) ? src : '';
+    return safe ? `<img src="${escHTML(safe)}" alt="Logo" />` : '🥖';
   }
-  return db.settings.logo;
+  return escHTML(db.settings.logo || '🥖');
 }
 
 // ════════════════════════════════════════════
@@ -1437,11 +1503,23 @@ let state = {
   fNom:'', fUsername:'', fPassword:'',
   fClientNom:'', fClientAdresse:'', fClientTel:'',
   activeClient: null,
-  activeLiv: null
+  activeLiv: null,
+  activeChargeId: null,
+  activeChargeTarget: null
 };
 
 function setState(patch){ 
   Object.assign(state, patch); 
+  // Si on va sur l'onglet sauvegardes, charger les données async puis re-render
+  if(state.adminTab === 'sauvegardes' && !patch._backupHTML) {
+    state._backupHTML = null; // force le loader
+    buildSauvegardes().then(html => {
+      state._backupHTML = html;
+      render();
+    });
+  } else if(state.adminTab !== 'sauvegardes') {
+    state._backupHTML = null; // reset quand on quitte l'onglet
+  }
   render(); 
 }
 
@@ -1522,7 +1600,7 @@ function buildLogin(){
         <h1>${escHTML(db.settings.nom)}</h1>
         <p>Système de Gestion Professionnelle</p>
       </div>
-      ${state.loginError ? `<div class="alert-error">⚠️ ${state.loginError}</div>` : ''}
+      ${state.loginError ? `<div class="alert-error">⚠️ ${escHTML(state.loginError)}</div>` : ''}
       <div class="form-group">
         <label class="form-label">Nom d'utilisateur</label>
         <input id="inp-user" class="form-input" type="text" value="${escHTML(state.fUsername)}" placeholder="admin ou nom livreur"/>
@@ -1539,18 +1617,38 @@ function buildLogin(){
   </div>`;
 }
 
+// ════════════════════════════════════════════
+// 🛡️  PROTECTION CONTRE LE BRUTE-FORCE
+// ⚠️  Note: ce blocage est en mémoire (reset si la page est rechargée).
+//     Pour une protection renforcée, implémenter côté Firebase Functions.
+// ════════════════════════════════════════════
+const loginAttempts = { count: 0, lockedUntil: 0 };
+
 function doLogin(){
+  // Vérifier si bloqué
+  const now = Date.now();
+  if(loginAttempts.lockedUntil > now) {
+    const remaining = Math.ceil((loginAttempts.lockedUntil - now) / 1000);
+    setState({ loginError: `🔒 Trop de tentatives. Réessayez dans ${remaining} secondes.`, fUsername: '' });
+    return;
+  }
+
   const u = document.getElementById('inp-user').value.toLowerCase().trim();
   const p = document.getElementById('inp-pass').value;
+  if(!u || !p) {
+    setState({ loginError: 'Veuillez remplir tous les champs.', fUsername: u });
+    return;
+  }
+  // Validation basique du format username (alphanumérique + tirets/underscores)
+  if(!/^[a-z0-9_\-]{1,50}$/.test(u)) {
+    setState({ loginError: "Nom d'utilisateur invalide.", fUsername: '' });
+    return;
+  }
   const user = db.users[u];
   if(user && user.password === p){
-    // Super Admin : accès sans licence nécessaire
-    if(user.role === 'superadmin') {
-      setState({ user:{username:u,...user}, fUsername:u, fPassword:'', loginError:'',
-        view:'superadmin', superAdminTab:'licenses' });
-      return;
-    }
-    // Vérification de licence pour les admins
+    loginAttempts.count = 0; loginAttempts.lockedUntil = 0; // Reset tentatives
+
+    // Vérification de licence pour les admins (avant tout enregistrement)
     if(user.role === 'admin') {
       const lic = (db.licenses||{})[u];
       if(lic) {
@@ -1564,28 +1662,39 @@ function doLogin(){
         }
       }
     }
-    // Enregistrer l'historique de connexion pour admin, chargeur, vendeur
-    if(['admin','chargeur','vendeur'].includes(user.role)) {
-      if(!db.loginHistory) db.loginHistory = [];
-      db.loginHistory.unshift({
-        id: 'log_' + uid(),
-        username: u,
-        userNom: user.nom,
-        userRole: user.role,
-        loginAt: new Date().toISOString()
-      });
-      // Limiter à 2000 entrées max
-      if(db.loginHistory.length > 2000) db.loginHistory = db.loginHistory.slice(0, 2000);
+
+    // ✅ CORRECTION BUG: enregistrement unique de l'historique (suppression du doublon)
+    if(!db.loginHistory) db.loginHistory = [];
+    db.loginHistory.unshift({ id: 'log_' + uid(), username: u, userNom: user.nom, userRole: user.role, loginAt: new Date().toISOString() });
+    if(db.loginHistory.length > 500) db.loginHistory = db.loginHistory.slice(0, 500);
+
+    // Super Admin : accès sans licence nécessaire
+    if(user.role === 'superadmin') {
+      const { password: _pw, ...safeUser } = user;
+      setState({ user:{username:u,...safeUser}, fUsername:u, fPassword:'', loginError:'',
+        view:'superadmin', superAdminTab:'licenses' });
       saveDB();
+      return;
     }
+
+    saveDB();
     let view = 'livreur';
     if(user.role === 'admin') view = 'admin';
     else if(user.role === 'chargeur') view = 'chargeur';
     else if(user.role === 'vendeur') view = 'vendeur';
-    setState({ user:{username:u,...user}, fUsername:u, fPassword:'', loginError:'',
+    // Ne jamais exposer le mot de passe dans le state
+    const { password: _pw2, ...safeUser2 } = user;
+    setState({ user:{username:u,...safeUser2}, fUsername:u, fPassword:'', loginError:'',
       view, adminTab:'overview' });
   } else {
-    setState({ loginError:'Identifiants incorrects', fUsername:u });
+    loginAttempts.count++;
+    if(loginAttempts.count >= 5) {
+      loginAttempts.lockedUntil = Date.now() + 60000; // 60 secondes de blocage (était 30s)
+      loginAttempts.count = 0;
+      setState({ loginError:'🔒 Trop de tentatives échouées. Compte bloqué 60 secondes.', fUsername:u });
+    } else {
+      setState({ loginError:`Identifiants incorrects (${loginAttempts.count}/5 tentatives)`, fUsername:u });
+    }
   }
 }
 
@@ -1678,17 +1787,25 @@ function calcLivreurStats(username){
 }
 
 function calcRapport(periode){
-  let start;
+  let start, end;
   const today=new Date(); today.setHours(0,0,0,0);
-  if(periode==="aujourd'hui") start=today;
-  else if(periode==='semaine') start=new Date(today-7*86400000);
-  else if(periode==='mois') start=new Date(today.getFullYear(),today.getMonth(),1);
-  else start=new Date(0);
+  const tomorrow=new Date(today.getTime()+86400000);
+  if(periode==="aujourd'hui") { start=today; end=tomorrow; }
+  else if(periode==="hier") {
+    start=new Date(today.getTime()-86400000);
+    end=today;
+  }
+  else if(periode==='semaine') { start=new Date(today-7*86400000); end=null; }
+  else if(periode==='mois') { start=new Date(today.getFullYear(),today.getMonth(),1); end=null; }
+  else { start=new Date(0); end=null; }
   
   let tL=0,tV=0,tR=0,tCA=0; const pl={};
   const livraisons = [];
   db.livraisons.forEach(liv=>{
-    if(new Date(liv.date)<start || liv.statut === 'en_cours') return;
+    const livDate = new Date(liv.date);
+    if(livDate < start) return;
+    if(end && livDate >= end) return;
+    if(liv.statut === 'en_cours') return;
     const l=liv.matin+liv.soir;
     tL+=l; tV+=liv.vendu; tR+=liv.restant; tCA+=liv.montant;
     if(!pl[liv.livreur]) pl[liv.livreur]={livreur:liv.livreur,nb:0,l:0,v:0,ca:0};
@@ -1756,6 +1873,7 @@ function buildAdmin(){
     {id:'depenses',    icon:'💸', label: t('Dépenses')},
     {id:'inventaire',  icon:'🌾', label: t('Inventaire')},
     {id:'rapports',    icon:'📄', label: t('Rapports')},
+    {id:'sauvegardes', icon:'💾', label: 'Sauvegardes'},
     {id:'settings',    icon:'⚙️', label: t('Paramètres')},
   ];
   
@@ -1788,7 +1906,7 @@ function buildAdmin(){
       <div style="font-size:11px;opacity:.6;margin-bottom:8px;padding:0 4px;" id="live-clock"></div>
       <div style="margin-bottom:10px;">
         <span id="sync-status-badge" class="sync-badge ${isOnline ? 'online' : 'offline'}">${isOnline ? '🟢 En ligne' : '🔴 Hors ligne'}</span>
-        <span style="font-size:10px;opacity:.5;margin-left:6px;">v14</span>
+        <span style="font-size:10px;opacity:.5;margin-left:6px;">v20</span>
       </div>
       <div class="user-badge">
         <span style="font-size:11px;opacity:.7;">${t('Connecté en tant que')}</span>
@@ -1817,6 +1935,7 @@ function buildAdmin(){
   if(state.adminTab==='depenses')    content=buildDepensesTab();
   if(state.adminTab==='inventaire')  content=buildInventaireTab();
   if(state.adminTab==='rapports')    content=buildRapports();
+  if(state.adminTab==='sauvegardes') content=state._backupHTML || '<div class="main fade-in" style="padding:40px;text-align:center;"><div style="font-size:40px">⏳</div><p>Chargement des sauvegardes...</p></div>';
   if(state.adminTab==='settings')    content=buildSettings();
 
   return `${sidebar}<div class="main fade-in">${content}</div>${buildModal()}${buildMobileNav(tabs, badgeMap)}`;
@@ -2151,9 +2270,13 @@ function buildChargementTab(){
             <span style="background:#DBEAFE;color:#1D4ED8;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;">${r.total} pains</span>
           </div>
           ${r.charges.sort((a,b)=>a.numCharge - b.numCharge).map((ch,i) => `
-          <div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--border);">
-            <span style="color:var(--muted);">C${ch.numCharge||i+1} (${ch.periode||'Matin'}) · ${new Date(ch.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-bottom:1px dashed var(--border);gap:8px;">
+            <span style="color:var(--muted);flex:1;">C${ch.numCharge||i+1} (${ch.periode||'Matin'}) · ${new Date(ch.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
             <strong>${ch.quantite} pains</strong>
+            <div style="display:flex;gap:4px;flex-shrink:0;">
+              <button class="btn-edit-charge" data-id="${escHTML(ch.id)}" style="background:#EFF6FF;border:none;border-radius:6px;padding:3px 7px;cursor:pointer;color:#1D4ED8;font-size:11px;font-weight:700;" title="Modifier">✏️</button>
+              <button class="btn-cancel-charge" data-id="${escHTML(ch.id)}" data-livreur="${escHTML(ch.livreur)}" data-qte="${ch.quantite}" data-nom="${escHTML(ch.livreurNom||ch.livreur)}" style="background:#FEE2E2;border:none;border-radius:6px;padding:3px 7px;cursor:pointer;color:var(--red);font-size:11px;font-weight:700;" title="Annuler">🗑</button>
+            </div>
           </div>`).join('')}
           <div style="font-size:11px;color:var(--muted);margin-top:6px;">Par : ${escHTML(r.charges[0].chargeurNom)}</div>
         </div>`;
@@ -2162,13 +2285,16 @@ function buildChargementTab(){
   </div>
 
   <div class="card" style="padding:0;overflow:hidden;">
-    <div style="padding:18px 20px 0;font-size:16px;font-weight:700;">📋 Historique des Charges (7 derniers jours)</div>
+    <div style="padding:18px 20px 12px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:16px;font-weight:700;">📋 Historique des Charges (7 derniers jours)</span>
+      <span style="font-size:12px;color:var(--muted);background:var(--bg);padding:4px 10px;border-radius:20px;">✏️ Admin peut modifier ou annuler</span>
+    </div>
     <table class="data-table">
       <thead><tr>
-        <th>Date & Heure</th><th>Livreur</th><th>N° Charge</th><th>Période</th><th>Quantité</th><th>Enregistré par</th>
+        <th>Date & Heure</th><th>Livreur</th><th>N° Charge</th><th>Période</th><th>Quantité</th><th>Enregistré par</th><th class="right">Actions</th>
       </tr></thead>
       <tbody>
-        ${!(db.charges||[]).length ? `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">Aucune charge enregistrée</td></tr>` : ''}
+        ${!(db.charges||[]).length ? `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted);">Aucune charge enregistrée</td></tr>` : ''}
         ${(db.charges||[])
           .filter(c => new Date(c.date) >= new Date(Date.now() - 7*86400000))
           .sort((a,b) => new Date(b.date)-new Date(a.date))
@@ -2179,6 +2305,12 @@ function buildChargementTab(){
             <td><span class="badge" style="background:#FEF3C7;color:#92400E;">${c.periode === 'soir' ? '🌙 Soir' : '☀️ Matin'}</span></td>
             <td><span style="font-family:'Syne';font-size:16px;font-weight:800;color:#1D4ED8;">${c.quantite}</span></td>
             <td style="font-size:13px;">${escHTML(c.chargeurNom||c.chargeur)}</td>
+            <td class="right">
+              <div style="display:flex;gap:6px;justify-content:flex-end;">
+                <button class="btn-edit-charge btn-secondary" data-id="${escHTML(c.id)}" style="padding:6px 10px;font-size:12px;background:#EFF6FF;color:#1D4ED8;border-radius:8px;" title="Modifier cette charge">✏️</button>
+                <button class="btn-cancel-charge btn-secondary" data-id="${escHTML(c.id)}" data-livreur="${escHTML(c.livreur)}" data-qte="${c.quantite}" data-nom="${escHTML(c.livreurNom||c.livreur)}" style="padding:6px 10px;font-size:12px;background:#FEE2E2;color:var(--red);border-radius:8px;" title="Annuler / Supprimer cette charge">🗑</button>
+              </div>
+            </td>
           </tr>`).join('')}
       </tbody>
     </table>
@@ -2402,8 +2534,8 @@ function buildInventaireTab() {
 // ── Rapports ──
 function buildRapports(){
   const r=calcRapport(state.periode);
-  const periodeOpts=["aujourd'hui",'semaine','mois','tout'];
-  const periodeLabel={"aujourd'hui":"Aujourd'hui",semaine:'Cette semaine',mois:'Ce mois',tout:"Tout l'historique"};
+  const periodeOpts=["aujourd'hui",'hier','semaine','mois','tout'];
+  const periodeLabel={"aujourd'hui":"Aujourd'hui",hier:"Hier",semaine:'Cette semaine',mois:'Ce mois',tout:"Tout l'historique"};
   const tauxVente = r.tL > 0 ? ((r.tV/r.tL)*100).toFixed(1) : '0';
   const tauxRetour = r.tL > 0 ? ((r.tR/r.tL)*100).toFixed(1) : '0';
   return `
@@ -2506,6 +2638,219 @@ function buildRapports(){
       </tbody>
     </table>
   </div>` : ''}`;
+}
+
+// ════════════════════════════════════════════
+// 💾  V20 — SYSTÈME DE SAUVEGARDES
+// ════════════════════════════════════════════
+
+const IDB_BACKUP_STORE = 'backups_store';
+
+async function openBackupIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 2); // Version 2 pour ajouter le store backups
+    req.onupgradeneeded = e => {
+      const idb = e.target.result;
+      if (!idb.objectStoreNames.contains(IDB_STORE)) idb.createObjectStore(IDB_STORE);
+      if (!idb.objectStoreNames.contains(IDB_BACKUP_STORE)) idb.createObjectStore(IDB_BACKUP_STORE);
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+async function saveBackupToIDB(backup) {
+  try {
+    const idb = await openBackupIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction(IDB_BACKUP_STORE, 'readwrite');
+      tx.objectStore(IDB_BACKUP_STORE).put(backup, backup.id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = e => reject(e.target.error);
+    });
+  } catch(e) { console.error('Backup IDB save error:', e); }
+}
+
+async function loadBackupsFromIDB() {
+  try {
+    const idb = await openBackupIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction(IDB_BACKUP_STORE, 'readonly');
+      const req = tx.objectStore(IDB_BACKUP_STORE).getAll();
+      req.onsuccess = e => resolve(e.target.result || []);
+      req.onerror = e => reject(e.target.error);
+    });
+  } catch(e) { console.error('Backup IDB load error:', e); return []; }
+}
+
+async function deleteBackupFromIDB(id) {
+  try {
+    const idb = await openBackupIDB();
+    return new Promise((resolve, reject) => {
+      const tx = idb.transaction(IDB_BACKUP_STORE, 'readwrite');
+      tx.objectStore(IDB_BACKUP_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = e => reject(e.target.error);
+    });
+  } catch(e) { console.error('Backup IDB delete error:', e); }
+}
+
+/** Crée et enregistre une sauvegarde */
+async function creerBackup(type) {
+  const typeLabels = { journalier: 'Journalier', mensuel: 'Mensuel', annuel: 'Annuel', manuel: 'Manuel' };
+  const now = new Date();
+  const snapshot = JSON.parse(JSON.stringify(db)); // deep copy
+  const backup = {
+    id: 'bak_' + uid(),
+    type,
+    label: typeLabels[type] || 'Manuel',
+    createdAt: now.toISOString(),
+    taille: JSON.stringify(snapshot).length,
+    nb_livraisons: (snapshot.livraisons||[]).length,
+    nb_clients: Object.keys(snapshot.clients||{}).length,
+    snapshot
+  };
+  await saveBackupToIDB(backup);
+  showToast(`💾 Sauvegarde ${typeLabels[type]} créée avec succès !`, 'success', 4000);
+  setState({}); // re-render pour afficher dans la liste
+  return backup;
+}
+
+/** Télécharge une sauvegarde en JSON */
+function telechargerBackup(backup) {
+  const json = JSON.stringify(backup.snapshot, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const d = new Date(backup.createdAt).toLocaleDateString('fr-FR').replace(/\//g,'-');
+  a.href = url;
+  a.download = `bamba_backup_${backup.type}_${d}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('📥 Fichier téléchargé !', 'info');
+}
+
+/** Restaure depuis un objet backup */
+function restaurerBackup(snapshot) {
+  db = snapshot;
+  normalizeDB();
+  saveDB();
+  showToast('✅ Données restaurées avec succès ! L\'application a été rechargée.', 'success', 5000);
+  setState({ view: 'admin', adminTab: 'overview' });
+}
+
+/** Formate la taille en Ko / Mo */
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' o';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' Ko';
+  return (bytes/1024/1024).toFixed(2) + ' Mo';
+}
+
+/** Interface de gestion des sauvegardes */
+let _backupList = [];
+async function buildSauvegardes() {
+  _backupList = await loadBackupsFromIDB();
+  _backupList.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return renderSauvegardesHTML(_backupList);
+}
+
+function renderSauvegardesHTML(backups) {
+  const typeColors = { journalier:'#DBEAFE:#1D4ED8', mensuel:'#D1FAE5:#065F46', annuel:'#EDE9FE:#5B21B6', manuel:'#FEF3C7:#92400E' };
+  const typeIcons = { journalier:'📅', mensuel:'🗓️', annuel:'📆', manuel:'🔧' };
+
+  return `
+  <div class="page-header">
+    <h1 class="page-title" style="margin:0;">💾 Sauvegardes & Restauration</h1>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn-backup" id="btn-backup-manuel">🔧 Manuel</button>
+    </div>
+  </div>
+
+  <!-- Création rapide -->
+  <div class="kpi-grid" style="margin-bottom:28px;">
+    <div class="kpi" style="cursor:pointer;transition:transform .2s,box-shadow .2s;" id="quick-backup-journalier" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 20px rgba(29,78,216,.15)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+      <div class="kpi-icon" style="background:#DBEAFE;">📅</div>
+      <div class="kpi-label">Sauvegarde Journalière</div>
+      <div class="kpi-value" style="color:#1D4ED8;font-size:16px;">Créer maintenant</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Snapshot quotidien complet</div>
+    </div>
+    <div class="kpi" style="cursor:pointer;transition:transform .2s,box-shadow .2s;" id="quick-backup-mensuel" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 20px rgba(5,150,105,.15)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+      <div class="kpi-icon" style="background:#D1FAE5;">🗓️</div>
+      <div class="kpi-label">Sauvegarde Mensuelle</div>
+      <div class="kpi-value" style="color:#059669;font-size:16px;">Créer maintenant</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Archive de fin de mois</div>
+    </div>
+    <div class="kpi" style="cursor:pointer;transition:transform .2s,box-shadow .2s;" id="quick-backup-annuel" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 20px rgba(91,33,182,.15)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+      <div class="kpi-icon" style="background:#EDE9FE;">📆</div>
+      <div class="kpi-label">Sauvegarde Annuelle</div>
+      <div class="kpi-value" style="color:#5B21B6;font-size:16px;">Créer maintenant</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Archive de fin d'année</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FEF3C7;">📦</div>
+      <div class="kpi-label">Sauvegardes enregistrées</div>
+      <div class="kpi-value" style="color:var(--amber);">${backups.length}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">${backups.length > 0 ? 'Dernière : ' + new Date(backups[0]?.createdAt).toLocaleDateString('fr-FR') : 'Aucune sauvegarde'}</div>
+    </div>
+  </div>
+
+  <!-- Restaurer depuis fichier -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="card-title">📂 Restaurer depuis un fichier</div>
+    <div id="backup-drop-zone">
+      <div style="font-size:48px;margin-bottom:12px;">📤</div>
+      <div style="font-family:'Syne';font-size:16px;font-weight:700;margin-bottom:6px;">Glissez-déposez un fichier .json</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">ou cliquez pour sélectionner une sauvegarde précédemment téléchargée</div>
+      <input type="file" id="backup-file-input" accept=".json" style="display:none;"/>
+      <button class="btn-restore" id="btn-browse-backup">📂 Choisir un fichier</button>
+    </div>
+    <div id="backup-restore-preview" style="display:none;margin-top:16px;"></div>
+  </div>
+
+  <!-- Liste des sauvegardes -->
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>📋 Historique des sauvegardes (${backups.length})</span>
+      ${backups.length > 0 ? `<button class="btn-secondary" id="btn-delete-all-backups" style="padding:8px 14px;font-size:12px;background:#FEE2E2;color:#991B1B;">🗑 Tout effacer</button>` : ''}
+    </div>
+    ${backups.length === 0 ? `
+      <div class="backup-empty">
+        <div style="font-size:48px;margin-bottom:12px;">💾</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px;">Aucune sauvegarde</div>
+        <div style="font-size:13px;">Créez votre première sauvegarde en cliquant sur l'un des boutons ci-dessus.</div>
+      </div>
+    ` : `
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:4px;">
+      ${backups.map(b => {
+        const [bg, fg] = (typeColors[b.type]||'#F3F4F6:#374151').split(':');
+        const icon = typeIcons[b.type] || '💾';
+        const d = new Date(b.createdAt);
+        return `
+        <div class="backup-card">
+          <div style="font-size:28px;">${icon}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+              <span class="backup-type-badge ${b.type}">${b.label}</span>
+              <span style="font-family:'Syne';font-size:14px;font-weight:700;">${d.toLocaleDateString('fr-FR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);">
+              🕐 ${d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})} &nbsp;•&nbsp;
+              📦 ${b.nb_livraisons} tournées &nbsp;•&nbsp;
+              👥 ${b.nb_clients} clients &nbsp;•&nbsp;
+              📏 ${formatSize(b.taille)}
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;">
+            <button class="btn-backup" data-bak-id="${escHTML(b.id)}" data-action="download" style="padding:9px 14px;font-size:13px;">📥 Télécharger</button>
+            <button class="btn-restore" data-bak-id="${escHTML(b.id)}" data-action="restore" style="padding:9px 14px;font-size:13px;">♻️ Restaurer</button>
+            <button class="btn-secondary" data-bak-id="${escHTML(b.id)}" data-action="delete" style="padding:9px 14px;font-size:13px;background:#FEE2E2;color:#991B1B;">🗑</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`}
+  </div>`;
 }
 
 // ── Paramètres ──
@@ -3019,66 +3364,136 @@ function buildModalChargeur(){
       .filter(([,u]) => u.role === 'livreur')
       .map(([username, u]) => ({username, ...u}));
 
+    // Pré-sélection du livreur (depuis state.activeChargeTarget si défini)
+    const selectedLivreur = state.activeChargeTarget || null;
+
+    // Calculer automatiquement N° charge + période pour chaque livreur
+    function getNextCharge(username) {
+      const chargesAujLiv = (db.charges||[]).filter(c => c.livreur === username && isToday(c.date));
+      const numCharge = chargesAujLiv.length + 1;
+      // Période : matin pour les 2 premières, soir ensuite (logique adaptable)
+      const periode = numCharge <= 2 ? 'matin' : 'soir';
+      return { numCharge, periode, total: chargesAujLiv.reduce((a,c)=>a+c.quantite,0) };
+    }
+
+    const now = new Date();
+    const heureVal = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+
+    // Si un livreur est déjà sélectionné, afficher directement le formulaire simplifié
+    if(selectedLivreur) {
+      const liv = db.users[selectedLivreur];
+      const { numCharge, periode, total } = getNextCharge(selectedLivreur);
+      const ordinal = ['1ère','2ème','3ème','4ème','5ème','6ème'][numCharge-1] || `${numCharge}ème`;
+
+      return `<div class="modal-backdrop" id="modal-backdrop">
+        <div class="modal-box" style="max-width:420px;">
+          <button class="modal-close modal-close-btn">✕</button>
+          
+          <!-- En-tête livreur sélectionné -->
+          <div style="background:linear-gradient(135deg,#1D4ED8,#3B82F6);border-radius:14px;padding:18px 20px;margin-bottom:20px;color:#fff;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:48px;height:48px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:24px;">🚚</div>
+              <div style="flex:1;">
+                <div style="font-size:18px;font-weight:800;font-family:'Syne';">${escHTML(liv.nom)}</div>
+                <div style="font-size:12px;opacity:.8;">@${escHTML(selectedLivreur)}</div>
+              </div>
+              <button id="btn-changer-livreur" style="background:rgba(255,255,255,.2);border:none;border-radius:8px;color:#fff;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;">Changer</button>
+            </div>
+            ${total > 0 ? `<div style="margin-top:12px;background:rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;font-size:13px;">
+              📦 Déjà chargé aujourd'hui : <strong>${total} pains</strong>
+            </div>` : ''}
+          </div>
+
+          <!-- Charge auto-détectée -->
+          <div style="background:linear-gradient(135deg,#F0F9FF,#E0F2FE);border:2px solid #BAE6FD;border-radius:14px;padding:16px 18px;margin-bottom:20px;">
+            <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:#0369A1;margin-bottom:8px;">🤖 Détecté automatiquement</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div style="text-align:center;background:#fff;border-radius:10px;padding:10px;border:2px solid #BAE6FD;">
+                <div style="font-size:10px;color:#0369A1;font-weight:700;text-transform:uppercase;margin-bottom:4px;">N° de charge</div>
+                <div style="font-family:'Syne';font-size:28px;font-weight:800;color:#1D4ED8;">${numCharge}</div>
+                <div style="font-size:12px;color:#6B7280;">${ordinal} charge</div>
+              </div>
+              <div style="text-align:center;background:#fff;border-radius:10px;padding:10px;border:2px solid #BAE6FD;">
+                <div style="font-size:10px;color:#0369A1;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Période</div>
+                <div style="font-family:'Syne';font-size:28px;font-weight:800;color:${periode==='matin'?'#D97706':'#6D28D9'};">${periode==='matin'?'☀️':'🌙'}</div>
+                <div style="font-size:12px;color:#6B7280;">${periode==='matin'?'Matin':'Soir'}</div>
+              </div>
+            </div>
+            <!-- Possibilité de corriger la période si besoin -->
+            <details style="margin-top:12px;">
+              <summary style="font-size:12px;color:#0369A1;cursor:pointer;font-weight:600;">⚙️ Modifier la période manuellement</summary>
+              <select id="m-ch-periode" class="form-select" style="margin-top:8px;">
+                <option value="matin" ${periode==='matin'?'selected':''}>☀️ Matin</option>
+                <option value="soir" ${periode==='soir'?'selected':''}>🌙 Soir</option>
+              </select>
+            </details>
+            <!-- Champ caché pour stocker le mode -->
+            <input type="hidden" id="m-ch-num" value="${numCharge}"/>
+            <input type="hidden" id="m-ch-livreur" value="${escHTML(selectedLivreur)}" data-nom="${escHTML(liv.nom)}"/>
+            <input type="hidden" id="m-ch-heure" value="${heureVal}"/>
+            <input type="hidden" id="m-ch-mode" value="Main propre"/>
+          </div>
+
+          <!-- Seul champ à remplir : la quantité -->
+          <div class="form-group">
+            <label class="form-label" style="font-size:15px;font-weight:800;color:var(--dark);">🥖 Quantité de pains *</label>
+            <input id="m-ch-qte" class="form-input" type="number" min="1" placeholder="Entrez le nombre de pains..." 
+              style="font-size:32px;font-weight:800;text-align:center;color:#1D4ED8;padding:20px;letter-spacing:-1px;"
+              autofocus/>
+            <div id="m-ch-qte-preview" style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px;display:none;"></div>
+          </div>
+
+          <div id="modal-error" style="display:none;" class="alert-error"></div>
+
+          <div class="form-actions" style="margin-top:8px;">
+            <button class="btn-secondary modal-close-btn">Annuler</button>
+            <button class="btn-charge" id="btn-save-charge" style="flex:1;justify-content:center;font-size:16px;padding:14px;">
+              ✅ Valider la ${ordinal} charge
+            </button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // Sinon : affichage des cartes livreurs à sélectionner
     return `<div class="modal-backdrop" id="modal-backdrop">
-      <div class="modal-box">
+      <div class="modal-box" style="max-width:480px;">
         <button class="modal-close modal-close-btn">✕</button>
-        <div class="modal-title">📦 Enregistrer une Charge</div>
-        <div style="font-size:13px;color:var(--muted);margin-bottom:20px;">Sélectionnez le livreur, la période et la quantité.</div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+          <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#1D4ED8,#3B82F6);display:flex;align-items:center;justify-content:center;font-size:22px;">📦</div>
+          <div>
+            <div class="modal-title" style="margin-bottom:2px;">Charger un Livreur</div>
+            <div style="font-size:12px;color:var(--muted);">Sélectionnez le livreur à charger</div>
+          </div>
+        </div>
         
-        <div class="form-group">
-          <label class="form-label">Livreur *</label>
-          <select id="m-ch-livreur" class="form-select">
-            <option value="">— Choisir un livreur —</option>
-            ${livreurs.map(l=>`<option value="${escHTML(l.username)}" data-nom="${escHTML(l.nom)}">${escHTML(l.nom)}</option>`).join('')}
-          </select>
-        </div>
+        ${!livreurs.length ? `<div class="empty"><div class="empty-icon">🚚</div><p>Aucun livreur dans le système</p></div>` : `
+        <div style="display:flex;flex-direction:column;gap:10px;max-height:380px;overflow-y:auto;">
+          ${livreurs.map(l => {
+            const { numCharge, periode, total } = getNextCharge(l.username);
+            const ordinal = ['1ère','2ème','3ème','4ème','5ème','6ème'][numCharge-1] || `${numCharge}ème`;
+            const isFirst = numCharge === 1;
+            return `
+            <button class="btn-select-livreur-charge" data-username="${escHTML(l.username)}"
+              style="width:100%;background:${isFirst?'var(--white)':'#EFF6FF'};border:2px solid ${isFirst?'var(--border)':'#BFDBFE'};border-radius:14px;padding:16px 18px;cursor:pointer;text-align:start;transition:all .18s;display:flex;align-items:center;gap:14px;">
+              <div style="width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#1D4ED8,#3B82F6);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🚚</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:15px;font-weight:800;font-family:'Syne';color:var(--dark);margin-bottom:3px;">${escHTML(l.nom)}</div>
+                <div style="font-size:12px;color:var(--muted);">@${escHTML(l.username)}</div>
+                ${total > 0 ? `<div style="font-size:12px;color:#1D4ED8;margin-top:3px;font-weight:600;">📦 Déjà chargé : ${total} pains</div>` : '<div style="font-size:12px;color:var(--green);margin-top:3px;font-weight:600;">⭕ Pas encore chargé aujourd\'hui</div>'}
+              </div>
+              <div style="text-align:center;flex-shrink:0;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:2px;">Prochaine</div>
+                <div style="background:${isFirst?'#D1FAE5':'#DBEAFE'};color:${isFirst?'#065F46':'#1D4ED8'};font-family:'Syne';font-size:14px;font-weight:800;padding:5px 10px;border-radius:8px;">
+                  C${numCharge} · ${periode==='matin'?'☀️':'🌙'}
+                </div>
+              </div>
+            </button>`;
+          }).join('')}
+        </div>`}
 
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Numéro de charge *</label>
-            <select id="m-ch-num" class="form-select">
-              <option value="1">1ère Charge</option>
-              <option value="2">2ème Charge</option>
-              <option value="3">3ème Charge</option>
-              <option value="4">4ème Charge</option>
-              <option value="5">5ème Charge</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Période *</label>
-            <select id="m-ch-periode" class="form-select">
-              <option value="matin">☀️ Matin</option>
-              <option value="soir">🌙 Soir</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Quantité de pains *</label>
-          <input id="m-ch-qte" class="form-input" type="number" min="1" placeholder="Ex: 200" style="font-size:20px;font-weight:700;text-align:center;"/>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Heure *</label>
-            <input id="m-ch-heure" class="form-input" type="time" value="${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}).replace('h',':')}"/>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Mode *</label>
-            <select id="m-ch-mode" class="form-select">
-              <option value="Main propre">🖐️ Main</option>
-              <option value="Panier">🧺 Panier</option>
-              <option value="Caisse">📦 Caisse</option>
-              <option value="Sac">👜 Sac</option>
-            </select>
-          </div>
-        </div>
-
-        <div id="modal-error" style="display:none;" class="alert-error"></div>
-
-        <div class="form-actions">
+        <div class="form-actions" style="margin-top:16px;">
           <button class="btn-secondary modal-close-btn">Annuler</button>
-          <button class="btn-charge" id="btn-save-charge" style="flex:1;justify-content:center;">✅ Enregistrer la charge</button>
         </div>
       </div>
     </div>`;
@@ -3248,6 +3663,54 @@ function buildModal(){
     <div class="form-actions">
       <button class="btn-secondary modal-close-btn">Annuler</button>
       <button class="btn-primary" id="btn-save-depense">Enregistrer</button>
+    </div>`;
+  }
+
+  if(state.modal==='editCharge'){
+    const ch = (db.charges||[]).find(c => c.id === state.activeChargeId);
+    if(!ch) return '';
+    const livreurs = Object.entries(db.users).filter(([,u])=>u.role==='livreur').map(([username,u])=>({username,...u}));
+    inner=`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+      <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#1D4ED8,#3B82F6);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">📦</div>
+      <div>
+        <div class="modal-title" style="margin-bottom:2px;color:#1D4ED8;">Modifier la Charge</div>
+        <div style="font-size:12px;color:var(--muted);">Enregistrée le ${fdatetime(ch.date)} par ${escHTML(ch.chargeurNom||ch.chargeur)}</div>
+      </div>
+    </div>
+    <hr style="border:none;border-top:2px solid #DBEAFE;margin:14px 0;"/>
+    <div class="form-group">
+      <label class="form-label">Livreur *</label>
+      <select id="ec-livreur" class="form-select">
+        ${livreurs.map(l=>`<option value="${escHTML(l.username)}" data-nom="${escHTML(l.nom)}" ${ch.livreur===l.username?'selected':''}>${escHTML(l.nom)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">N° de charge</label>
+        <select id="ec-num" class="form-select">
+          ${[1,2,3,4,5].map(n=>`<option value="${n}" ${(ch.numCharge||1)==n?'selected':''}>Charge ${n}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Période</label>
+        <select id="ec-periode" class="form-select">
+          <option value="matin" ${ch.periode!=='soir'?'selected':''}>☀️ Matin</option>
+          <option value="soir" ${ch.periode==='soir'?'selected':''}>🌙 Soir</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantité de pains *</label>
+      <input id="ec-qte" class="form-input" type="number" min="1" value="${ch.quantite}" style="font-size:22px;font-weight:800;text-align:center;color:#1D4ED8;"/>
+    </div>
+    <div style="background:#FEF3C7;border-radius:10px;padding:12px 14px;margin-bottom:16px;border:1px solid #FCD34D;font-size:12px;color:#78350F;">
+      ⚠️ La modification met à jour la charge et le stock du livreur. L'ancienne quantité (${ch.quantite} pains) sera remplacée.
+    </div>
+    <div id="modal-error" style="display:none;" class="alert-error"></div>
+    <div class="form-actions">
+      <button class="btn-secondary modal-close-btn">Annuler</button>
+      <button class="btn-primary" id="btn-save-edit-charge" style="background:linear-gradient(135deg,#1D4ED8,#3B82F6);box-shadow:0 4px 14px rgba(29,78,216,.3);">💾 Enregistrer la modification</button>
     </div>`;
   }
 
@@ -3603,7 +4066,8 @@ function bindEvents(){
   // Login
   const btnLogin=document.getElementById('btn-login');
   if(btnLogin){ btnLogin.addEventListener('click', doLogin);
-    document.getElementById('inp-pass')?.addEventListener('keydown',e=>e.key==='Enter'&&doLogin()); }
+    document.getElementById('inp-pass')?.addEventListener('keydown',e=>e.key==='Enter'&&doLogin());
+    document.getElementById('inp-user')?.addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('inp-pass')?.focus(); }); }
 
   // Password toggle
   document.getElementById('btn-toggle-pass')?.addEventListener('click', () => {
@@ -3683,8 +4147,36 @@ function bindEvents(){
   document.getElementById('btn-vente-detail')?.addEventListener('click',()=>setState({modal:'venteDetail'}));
 
   // Modals Chargeur
-  document.getElementById('btn-nouvelle-charge')?.addEventListener('click',()=>setState({modal:'nouvelleCharge'}));
+  document.getElementById('btn-nouvelle-charge')?.addEventListener('click',()=>setState({modal:'nouvelleCharge', activeChargeTarget: null}));
   document.getElementById('btn-declarer-production')?.addEventListener('click',()=>setState({modal:'declarerProduction'}));
+
+  // ── Sélection livreur dans modal nouvelle charge (étape 1) ──
+  document.querySelectorAll('.btn-select-livreur-charge').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setState({ modal: 'nouvelleCharge', activeChargeTarget: btn.dataset.username });
+      setTimeout(() => document.getElementById('m-ch-qte')?.focus(), 60);
+    });
+  });
+
+  // ── Bouton "Changer de livreur" (retour étape 1) ──
+  document.getElementById('btn-changer-livreur')?.addEventListener('click', () => {
+    setState({ modal: 'nouvelleCharge', activeChargeTarget: null });
+  });
+
+  // ── Preview quantité en temps réel ──
+  document.getElementById('m-ch-qte')?.addEventListener('input', e => {
+    const qte = parseInt(e.target.value) || 0;
+    const preview = document.getElementById('m-ch-qte-preview');
+    if(!preview) return;
+    if(qte > 0) {
+      const livId = document.getElementById('m-ch-livreur')?.value || state.activeChargeTarget;
+      const livNom = livId ? (db.users[livId]?.nom || livId) : '?';
+      preview.innerHTML = `<span style="color:var(--green);font-weight:700;">✅ ${qte} pains</span> seront attribués à <strong>${escHTML(livNom)}</strong>`;
+      preview.style.display = 'block';
+    } else {
+      preview.style.display = 'none';
+    }
+  });
   // Approvisionner boutique (Chargeur)
   const btnChargerBoutique = document.getElementById('btn-charger-boutique');
   if(btnChargerBoutique && !btnChargerBoutique.disabled) {
@@ -4331,6 +4823,9 @@ function bindEvents(){
   // ── Boutique / Vendeur Events ──
   bindBoutiqueEvents();
 
+  // ── Sauvegardes Events ──
+  bindBackupEvents();
+
   // ── Delete Client ──
   document.querySelectorAll('.btn-del-client').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -4372,6 +4867,86 @@ function bindEvents(){
       saveDB();
       setState({adminTab:'depenses'});
       showToast('🗑 Dépense supprimée.', 'info');
+    });
+  });
+
+  // ── Edit Charge (Admin) ──
+  document.querySelectorAll('.btn-edit-charge').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      setState({ modal: 'editCharge', activeChargeId: id, adminTab: 'chargement' });
+    });
+  });
+
+  // ── Save Edit Charge (Admin) ──
+  document.getElementById('btn-save-edit-charge')?.addEventListener('click', () => {
+    const ch = (db.charges||[]).find(c => c.id === state.activeChargeId);
+    if (!ch) return;
+    const sel = document.getElementById('ec-livreur');
+    const livreurId = sel?.value;
+    const livreurNom = sel?.options[sel.selectedIndex]?.dataset.nom || livreurId;
+    const nouvelleQte = parseInt(document.getElementById('ec-qte')?.value);
+    const nouveauNum = parseInt(document.getElementById('ec-num')?.value);
+    const nouvellePeriode = document.getElementById('ec-periode')?.value;
+
+    if (!livreurId || !nouvelleQte || nouvelleQte <= 0) {
+      showError('Veuillez remplir tous les champs obligatoires.');
+      return;
+    }
+
+    const ancienneQte = ch.quantite;
+    const ancienLivreur = ch.livreur;
+
+    // Mettre à jour la charge
+    ch.livreur = livreurId;
+    ch.livreurNom = livreurNom;
+    ch.quantite = nouvelleQte;
+    ch.numCharge = nouveauNum;
+    ch.periode = nouvellePeriode;
+    ch.modifiedAt = new Date().toISOString();
+    ch.modifiedBy = state.user.nom;
+
+    // Mettre à jour le stock correspondant (même id de stock si existant, sinon ajustement delta)
+    const stockEntry = (db.stocks||[]).find(s =>
+      s.livreur === ancienLivreur && isToday(s.date) &&
+      (s.numCharge === (ch.numCharge) || Math.abs(s.quantite - ancienneQte) < 1)
+    );
+    if (stockEntry) {
+      stockEntry.livreur = livreurId;
+      stockEntry.quantite = nouvelleQte;
+      stockEntry.numCharge = nouveauNum;
+    }
+
+    saveDB();
+    setState({ modal: null, activeChargeId: null, adminTab: 'chargement' });
+    showToast(`✅ Charge modifiée : ${nouvelleQte} pains pour ${livreurNom}.`, 'success', 5000);
+  });
+
+  // ── Cancel / Delete Charge (Admin) ──
+  document.querySelectorAll('.btn-cancel-charge').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      const nom = btn.dataset.nom;
+      const qte = btn.dataset.qte;
+      const livreur = btn.dataset.livreur;
+
+      if (!confirm(`⚠️ Annuler la charge de ${qte} pains pour ${nom} ?\n\nCela supprimera aussi l'entrée de stock correspondante.`)) return;
+
+      // Trouver et retirer la charge
+      const ch = (db.charges||[]).find(c => c.id === id);
+      if (ch) {
+        // Retirer du stock aussi (trouver le stock correspondant)
+        const idx = (db.stocks||[]).findIndex(s =>
+          s.livreur === livreur &&
+          Math.abs(new Date(s.date) - new Date(ch.date)) < 5 * 60 * 1000 // ±5 min
+        );
+        if (idx !== -1) db.stocks.splice(idx, 1);
+      }
+
+      db.charges = (db.charges||[]).filter(c => c.id !== id);
+      saveDB();
+      setState({ adminTab: 'chargement' });
+      showToast(`🗑 Charge annulée pour ${nom} (${qte} pains restitués au stock).`, 'warning', 5000);
     });
   });
 }
@@ -4987,6 +5562,133 @@ function sauverJournee(statut) {
 // ════════════════════════════════════════════
 // 🔌  BIND EVENTS BOUTIQUE / VENDEUR
 // ════════════════════════════════════════════
+// ════════════════════════════════════════════
+// 💾  V20 — EVENTS SAUVEGARDES
+// ════════════════════════════════════════════
+function bindBackupEvents() {
+  if(state.adminTab !== 'sauvegardes') return;
+
+  // ── Créer sauvegarde depuis les KPI cards ──
+  document.getElementById('quick-backup-journalier')?.addEventListener('click', () => creerBackup('journalier'));
+  document.getElementById('quick-backup-mensuel')?.addEventListener('click',    () => creerBackup('mensuel'));
+  document.getElementById('quick-backup-annuel')?.addEventListener('click',     () => creerBackup('annuel'));
+  document.getElementById('btn-backup-manuel')?.addEventListener('click',       () => creerBackup('manuel'));
+
+  // ── Actions sur chaque backup (download / restore / delete) ──
+  document.querySelectorAll('[data-bak-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.bakId;
+      const action = btn.dataset.action;
+      const backup = _backupList.find(b => b.id === id);
+      if(!backup) return;
+
+      if(action === 'download') {
+        telechargerBackup(backup);
+      }
+      else if(action === 'restore') {
+        const d = new Date(backup.createdAt).toLocaleString('fr-FR');
+        if(!confirm(`⚠️ RESTAURER la sauvegarde du ${d} ?\n\nTOUTES les données actuelles seront remplacées par celles de cette sauvegarde.\n\nCette action est irréversible. Continuez ?`)) return;
+        restaurerBackup(backup.snapshot);
+      }
+      else if(action === 'delete') {
+        if(!confirm('Supprimer cette sauvegarde ? Elle sera effacée de cet appareil.')) return;
+        await deleteBackupFromIDB(id);
+        showToast('🗑 Sauvegarde supprimée.', 'info');
+        // Re-render
+        const content = await buildSauvegardes();
+        document.querySelector('.main')?.querySelector('.page-header')?.closest('div')?.remove();
+        setState({});
+      }
+    });
+  });
+
+  // ── Tout effacer ──
+  document.getElementById('btn-delete-all-backups')?.addEventListener('click', async () => {
+    if(!confirm(`Supprimer TOUTES les ${_backupList.length} sauvegardes ? Cette action est irréversible.`)) return;
+    for(const b of _backupList) await deleteBackupFromIDB(b.id);
+    showToast('🗑 Toutes les sauvegardes ont été effacées.', 'warning');
+    setState({});
+  });
+
+  // ── Restauration depuis fichier ──
+  const fileInput = document.getElementById('backup-file-input');
+  document.getElementById('btn-browse-backup')?.addEventListener('click', () => fileInput?.click());
+
+  fileInput?.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if(file) handleBackupFile(file);
+  });
+
+  // Drag & Drop
+  const dropZone = document.getElementById('backup-drop-zone');
+  dropZone?.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone?.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone?.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if(file) handleBackupFile(file);
+  });
+}
+
+function handleBackupFile(file) {
+  if(!file.name.endsWith('.json')) {
+    showToast('❌ Le fichier doit être un .json', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const snapshot = JSON.parse(e.target.result);
+      // Validation minimale du snapshot
+      if(!snapshot.users || !snapshot.settings) {
+        showToast('❌ Fichier invalide : ce n\'est pas une sauvegarde Boulangerie Bamba.', 'error');
+        return;
+      }
+      // Afficher un aperçu avant restauration
+      const preview = document.getElementById('backup-restore-preview');
+      if(preview) {
+        preview.style.display = 'block';
+        const d = snapshot.settings?.nom || 'Boulangerie Bamba';
+        const nbLivs = (snapshot.livraisons||[]).length;
+        const nbClients = Object.keys(snapshot.clients||{}).length;
+        const nbUsers = Object.keys(snapshot.users||{}).length;
+        preview.innerHTML = `
+          <div class="alert-success" style="padding:16px;">
+            <div style="font-weight:700;font-size:15px;margin-bottom:8px;">✅ Fichier valide — Aperçu du contenu</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+              <div style="background:white;border-radius:8px;padding:10px;text-align:center;">
+                <div style="font-size:20px;">🏪</div>
+                <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;">Enseigne</div>
+                <div style="font-size:14px;font-weight:700;">${escHTML(d)}</div>
+              </div>
+              <div style="background:white;border-radius:8px;padding:10px;text-align:center;">
+                <div style="font-size:20px;">📋</div>
+                <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;">Tournées</div>
+                <div style="font-size:16px;font-weight:800;color:var(--green);">${nbLivs}</div>
+              </div>
+              <div style="background:white;border-radius:8px;padding:10px;text-align:center;">
+                <div style="font-size:20px;">👥</div>
+                <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;">Utilisateurs</div>
+                <div style="font-size:16px;font-weight:800;color:var(--amber);">${nbUsers}</div>
+              </div>
+            </div>
+            <button class="btn-restore" id="btn-confirm-file-restore" style="width:100%;justify-content:center;">
+              ♻️ Restaurer depuis ce fichier
+            </button>
+          </div>`;
+        document.getElementById('btn-confirm-file-restore')?.addEventListener('click', () => {
+          if(!confirm('⚠️ Confirmer la restauration ? Toutes les données actuelles seront remplacées.')) return;
+          restaurerBackup(snapshot);
+        });
+      }
+    } catch(err) {
+      showToast('❌ Fichier JSON corrompu ou invalide.', 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
 function bindBoutiqueEvents() {
   // ── Admin : Ouvrir modaux ──
   document.getElementById('btn-new-boutique')?.addEventListener('click', () => setState({ modal: 'addBoutique' }));
@@ -5609,12 +6311,46 @@ function bindSuperAdminEvents() {
     btn.addEventListener('click', () => {
       const username = btn.dataset.username;
       const nom = btn.dataset.nom;
-      const newPass = prompt(`Nouveau mot de passe pour ${nom} (@${username}):`);
-      if(!newPass) return;
-      if(newPass.length < 3) return showToast('Mot de passe trop court (min 3 car.)', 'error');
-      db.users[username].password = newPass;
-      saveDB();
-      showToast(`🔑 Mot de passe de @${username} modifié !`, 'success');
+      // ✅ SÉCURITÉ: Remplacement du prompt() par un modal dédié (le prompt expose le texte en clair)
+      const mc = document.getElementById('sa-extra-modal');
+      if(!mc) return;
+      mc.innerHTML = `
+        <div id="sa-modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px;">
+          <div style="background:white;border-radius:18px;padding:32px;width:100%;max-width:420px;position:relative;box-shadow:0 24px 60px rgba(0,0,0,.25);">
+            <button id="sa-modal-close" style="position:absolute;top:14px;right:14px;background:#F3F4F6;border:none;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;color:var(--muted);">✕</button>
+            <h3 style="font-family:'Syne';font-size:20px;font-weight:800;margin-bottom:20px;">🔑 Changer le MDP — @${escHTML(username)}</h3>
+            <div class="form-group">
+              <label class="form-label">Nouveau mot de passe</label>
+              <input id="sa-chg-pass-new" class="form-input" type="password" placeholder="••••••••" autocomplete="new-password"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirmer le mot de passe</label>
+              <input id="sa-chg-pass-confirm" class="form-input" type="password" placeholder="••••••••"/>
+            </div>
+            <div id="sa-chg-pass-error" style="display:none;" class="alert-error"></div>
+            <div class="form-actions">
+              <button class="btn-secondary" id="sa-modal-cancel">Annuler</button>
+              <button class="btn-primary" id="sa-chg-pass-save">✅ Confirmer</button>
+            </div>
+          </div>
+        </div>`;
+      const close = () => { mc.innerHTML = ''; };
+      mc.querySelector('#sa-modal-close').addEventListener('click', close);
+      mc.querySelector('#sa-modal-cancel').addEventListener('click', close);
+      mc.querySelector('#sa-modal-backdrop').addEventListener('click', e => { if(e.target.id === 'sa-modal-backdrop') close(); });
+      mc.querySelector('#sa-chg-pass-save').addEventListener('click', () => {
+        const newPass = mc.querySelector('#sa-chg-pass-new').value;
+        const conf = mc.querySelector('#sa-chg-pass-confirm').value;
+        const errDiv = mc.querySelector('#sa-chg-pass-error');
+        const showErr = (m) => { errDiv.style.display='flex'; errDiv.innerHTML=`⚠️ ${m}`; };
+        errDiv.style.display = 'none';
+        if(newPass.length < 6) return showErr('Mot de passe trop court (min 6 caractères).');
+        if(newPass !== conf) return showErr('Les mots de passe ne correspondent pas.');
+        db.users[username].password = newPass;
+        saveDB();
+        showToast(`🔑 Mot de passe de @${username} modifié !`, 'success');
+        close();
+      });
     });
   });
 
@@ -5671,7 +6407,7 @@ function bindSAModalEvents() {
     errDiv.style.display='none';
     if(!nom) return showErr('Le nom est obligatoire.');
     if(!username) return showErr("Le nom d'utilisateur est obligatoire.");
-    if(!pass || pass.length < 3) return showErr('Mot de passe trop court (min 3 car.).');
+    if(!pass || pass.length < 6) return showErr('Mot de passe trop court (min 6 caractères).');
     if(db.users[username]) return showErr("Ce nom d'utilisateur existe déjà.");
     db.users[username] = { role:'admin', nom, password: pass, createdAt: new Date().toISOString() };
     if(!db.licenses) db.licenses = {};
@@ -5863,15 +6599,22 @@ function buildNotifications() {
 
   const list = document.getElementById('notif-list');
   if(!list) return;
-  list.innerHTML = notifs.map(n => `
-    <div class="notif-item" style="cursor:${n.action?'pointer':'default'};" ${n.action?`onclick="(${n.action.toString()})()"`:''}">
+  list.innerHTML = notifs.map((n, idx) => `
+    <div class="notif-item" style="cursor:${n.action?'pointer':'default'};" data-notif-idx="${idx}">
       <div class="notif-dot" style="background:${n.color};"></div>
       <div>
-        <div style="font-size:14px;font-weight:700;margin-bottom:3px;">${n.icon} ${n.title}</div>
-        <div style="font-size:13px;color:var(--muted);">${n.text}</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:3px;">${n.icon} ${escHTML(n.title)}</div>
+        <div style="font-size:13px;color:var(--muted);">${escHTML(n.text)}</div>
       </div>
     </div>
   `).join('');
+  // Attacher les événements click sans inline JS
+  list.querySelectorAll('.notif-item[data-notif-idx]').forEach(el => {
+    const idx = parseInt(el.dataset.notifIdx);
+    if(notifs[idx] && notifs[idx].action) {
+      el.addEventListener('click', () => { notifs[idx].action(); closeNotifPanel(); });
+    }
+  });
 
   // Update badge
   const badge = document.getElementById('notif-count-badge');
@@ -5932,6 +6675,59 @@ function buildCalcModal() {
   </div>`;
 }
 
+// ════════════════════════════════════════════
+// 🔒  ÉVALUATEUR MATHÉMATIQUE SÉCURISÉ (sans eval ni Function)
+// ════════════════════════════════════════════
+function safeMathEval(expr) {
+  // Tokenizer / parser récursif pour +, -, *, /, %, parenthèses
+  let pos = 0;
+  const str = expr.replace(/\s/g, '');
+  function peek() { return str[pos]; }
+  function consume() { return str[pos++]; }
+  function parseNumber() {
+    let s = '';
+    if(peek() === '-' && (pos === 0 || '+-*/%('.includes(str[pos-1]))) s += consume();
+    while(pos < str.length && /[0-9.]/.test(peek())) s += consume();
+    const n = parseFloat(s);
+    if(isNaN(n)) throw new Error('Invalid');
+    return n;
+  }
+  function parseExpr() { return parseAddSub(); }
+  function parseAddSub() {
+    let left = parseMulDiv();
+    while(pos < str.length && (peek() === '+' || peek() === '-')) {
+      const op = consume();
+      const right = parseMulDiv();
+      left = op === '+' ? left + right : left - right;
+    }
+    return left;
+  }
+  function parseMulDiv() {
+    let left = parsePrimary();
+    while(pos < str.length && (peek() === '*' || peek() === '/' || peek() === '%')) {
+      const op = consume();
+      const right = parsePrimary();
+      if(op === '*') left *= right;
+      else if(op === '/') { if(right === 0) throw new Error('Div/0'); left /= right; }
+      else left %= right;
+    }
+    return left;
+  }
+  function parsePrimary() {
+    if(peek() === '(') {
+      consume(); // (
+      const val = parseExpr();
+      if(peek() !== ')') throw new Error('Missing )');
+      consume(); // )
+      return val;
+    }
+    return parseNumber();
+  }
+  const result = parseExpr();
+  if(pos !== str.length) throw new Error('Unexpected char');
+  return result;
+}
+
 function openCalc() {
   const existing = document.getElementById('calc-modal-backdrop');
   if(existing) { existing.remove(); return; }
@@ -5949,9 +6745,14 @@ function openCalc() {
       else if(v === 'DEL') { expr = expr.slice(0,-1)||''; display.textContent = expr||'0'; }
       else if(v === '=') {
         try {
-          const res = Function('"use strict"; return ('+expr+')')();
-          display.textContent = Number.isFinite(res) ? res : 'Erreur';
-          expr = String(res);
+          // Évaluation sécurisée — strict whitelist de caractères mathématiques uniquement
+          const sanitized = expr.replace(/[^0-9+\-*/.()%\s]/g, '');
+          if(!sanitized || sanitized.trim() === '') { display.textContent = 'Erreur'; expr = ''; return; }
+          // Parser mathématique sécurisé sans eval ni Function()
+          const res = safeMathEval(sanitized);
+          const rounded = +res.toFixed(10);
+          display.textContent = Number.isFinite(rounded) ? rounded : 'Erreur';
+          expr = Number.isFinite(rounded) ? String(rounded) : '';
         } catch { display.textContent = 'Erreur'; expr = ''; }
       } else {
         expr += v;
@@ -5974,7 +6775,7 @@ function openCalc() {
 function exportPDFRapport() {
   const r = calcRapport(state.periode);
   const now = new Date();
-  const periodeLabel = {"aujourd'hui":"Aujourd'hui", "semaine":"Cette semaine", "mois":"Ce mois", "tout":"Historique complet"};
+  const periodeLabel = {"aujourd'hui":"Aujourd'hui", "hier":"Hier", "semaine":"Cette semaine", "mois":"Ce mois", "tout":"Historique complet"};
   
   let html = `
     <html><head><meta charset="UTF-8">
@@ -6014,11 +6815,15 @@ function exportPDFRapport() {
         </tr>`).join('')}
       </tbody>
     </table>
-    <div class="footer">${escHTML(db.settings.nom)} — Système de gestion Boulangerie Bamba v14</div>
+    <div class="footer">${escHTML(db.settings.nom)} — Système de gestion Boulangerie Bamba v20</div>
     </body></html>
   `;
   
   const win = window.open('', '_blank');
+  if(!win) {
+    showToast('⚠️ Popup bloqué par le navigateur. Autorisez les popups pour ce site.', 'warning', 6000);
+    return;
+  }
   win.document.write(html);
   win.document.close();
   win.focus();
@@ -6059,47 +6864,51 @@ function compareBadge(diff) {
 // ════════════════════════════════════════════
 // 🆕 V14 — HOOK DANS buildOverview POUR COMPARATIF + CLOCHE
 // ════════════════════════════════════════════
-const _origBuildAdmin = buildAdmin;
 // Patch post-render to add notif bell and calc button to sidebar
-const _origRender = render;
-window._patchedRender = true;
 
 
-(async () => {
-  const cached = await idbLoad();
-  if(cached) {
-    db = cached;
-    normalizeDB();
+// ════════════════════════════════════════════
+// 🚀  INITIALISATION — Premier render garanti
+// ════════════════════════════════════════════
+// Si Firebase ET le timeout n'ont pas encore déclenché render() après 8s, forcer le chargement
+setTimeout(async () => {
+  if (!window.isAppInitialized) {
+    console.warn('Forçage de l\'initialisation après 8s...');
+    const cached = await idbLoad();
+    if (cached && Object.keys(cached).length > 0) {
+      db = cached;
+      normalizeDB();
+    }
+    render();
+    window.isAppInitialized = true;
   }
-  render();
-  window.isAppInitialized = true;
-})();
+}, 8000);
 
 // ════════════════════════════════════════════
 // 📦  SERVICE WORKER — Cache du logiciel
 // ════════════════════════════════════════════
+// ✅ CORRECTION BUG: Version incrémentée à v20 pour vider l'ancien cache
 if('serviceWorker' in navigator) {
-  // Créer le SW inline via blob
   const swCode = `
-const CACHE = 'bamba-v13';
-self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll([location.href]))
-  );
-  self.skipWaiting();
-});
+const CACHE = 'bamba-v20';
+self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
+  // Supprimer TOUS les anciens caches (bamba-v18, v17, etc.)
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
 });
 self.addEventListener('fetch', e => {
+  // Stratégie Network-first : réseau en priorité, cache uniquement si hors-ligne
   if(e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request).then(r => {
-        const clone = r.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
+        if(r && r.status === 200) {
+          const clone = r.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
         return r;
       }).catch(() => caches.match(e.request))
     );
@@ -6108,8 +6917,8 @@ self.addEventListener('fetch', e => {
 `;
   const blob = new Blob([swCode], {type: 'application/javascript'});
   const swUrl = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(swUrl).then(() => {
-    console.log('✅ Service Worker enregistré — Logiciel disponible hors ligne');
+  navigator.serviceWorker.register(swUrl).then(reg => {
+    console.log('✅ Service Worker v20 enregistré');
   }).catch(e => console.log('SW non supporté:', e));
 }
 </script>

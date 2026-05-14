@@ -850,6 +850,23 @@ import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebase
 // ════════════════════════════════════════════
 function escHTML(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fcfa(n){ return new Intl.NumberFormat('fr-FR').format(n)+' FCFA'; }
+
+// ── Détection automatique de la période selon l'heure réelle ──
+function getPeriodeAuto(date){
+  const h = (date || new Date()).getHours();
+  return h < 13 ? 'matin' : 'soir';
+}
+function getPeriodeLabel(p){ return p === 'soir' ? '🌙 Soir' : '☀️ Matin'; }
+
+// ── Numéro de charge automatique pour un livreur ──
+function getNextNumCharge(livreurId){
+  const auj = (db.charges||[]).filter(c => c.livreur === livreurId && isToday(c.date));
+  return auj.length + 1;
+}
+function getNextNumStock(livreurId){
+  const auj = (db.stocks||[]).filter(s => s.livreur === livreurId && isToday(s.date));
+  return auj.length + 1;
+}
 function fdate(s){ return new Date(s).toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}); }
 function fdatetime(s){ return new Date(s).toLocaleString('fr-FR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
 function uid(){ 
@@ -969,7 +986,7 @@ function buildValidationBannerLivreur(livreurId) {
         <div style="font-size:12px;color:var(--muted);">pains</div>
       </div>
       <div class="validation-item-info">
-        <div style="font-size:15px;font-weight:700;margin-bottom:4px;">📦 Charge n°${v.numCharge || 1} — ${v.periode === 'soir' ? '🌙 Soir' : '☀️ Matin'}</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px;">📦 Charge n°${v.numCharge || 1} — ${getPeriodeLabel(v.periode||getPeriodeAuto(new Date(v.createdAt)))}</div>
         <div style="font-size:13px;color:var(--muted);">De : <strong>${escHTML(v.chargeurNom)}</strong></div>
         <div style="font-size:12px;color:var(--muted);">à ${new Date(v.createdAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
       </div>
@@ -1762,12 +1779,19 @@ function calcLivreurStats(username){
   let livsMois = 0;
   let caMois = 0;
   let chargesDetail = [];
+  let totalEncaisse = 0;  // Somme de tout ce que le livreur a réellement encaissé
+  let totalDu = 0;        // Somme totale de ce qui était dû (montant brut)
+  let totalRetours = 0;   // Pains retournés (invendus) cumulés
+  let totalRetoursMois = 0; // Retours du mois en cours
+  let totalRetoursAuj = 0;  // Retours d'aujourd'hui
   
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   db.stocks.forEach(s => {
     if(s.livreur === username && isToday(s.date)) {
       stockAuj += s.quantite;
+      // Normaliser la période si absente (données anciennes)
+      if(!s.type) s.type = getPeriodeAuto(new Date(s.date));
       chargesDetail.push(s);
     }
   });
@@ -1778,12 +1802,26 @@ function calcLivreurStats(username){
   chargesDetail.forEach((s,i) => { if(!s.numCharge) s.numCharge = i+1; });
 
   db.livraisons.forEach(l => {
-    if(l.livreur === username && l.statut === 'terminee'){ 
-      if(new Date(l.date) >= monthStart){ livsMois++; caMois+=l.montant; }
-      if(isToday(l.date)){ caAuj += l.montant; }
+    if(l.livreur === username && l.statut === 'terminee'){
+      // Total encaissé cumulé (toutes périodes)
+      totalEncaisse += (l.paye !== undefined ? l.paye : l.montant);
+      totalDu += l.montant;
+      // Retours cumulés
+      const ret = l.restant || 0;
+      totalRetours += ret;
+      if(new Date(l.date) >= monthStart){ livsMois++; caMois+=l.montant; totalRetoursMois += ret; }
+      if(isToday(l.date)){ caAuj += l.montant; totalRetoursAuj += ret; }
     }
   });
-  return { livsMois, caMois, stockAuj, caAuj, nbCharges: chargesDetail.length, chargesDetail };
+
+  // Dettes cumulées : somme des créances des clients de ce livreur
+  const livreurClients = db.livreurs[username]?.clients || [];
+  const totalCreances = livreurClients.reduce((acc, cid) => {
+    const creance = db.clients[cid]?.creance || 0;
+    return acc + (creance > 0 ? creance : 0); // seulement les dettes positives
+  }, 0);
+
+  return { livsMois, caMois, stockAuj, caAuj, nbCharges: chargesDetail.length, chargesDetail, totalEncaisse, totalDu, totalCreances, totalRetours, totalRetoursMois, totalRetoursAuj };
 }
 
 function calcRapport(periode){
@@ -2206,6 +2244,18 @@ function buildLivreurs(){
           <div class="mini-stat-label">CA du mois</div>
           <div class="mini-stat-value" style="font-size:15px;">${fcfa(l.st.caMois)}</div>
         </div>
+        <div class="mini-stat" style="grid-column:span 2;background:#FFF5F5;border:1px solid #FCA5A5;">
+          <div class="mini-stat-label" style="color:#991B1B;">💳 Dettes cumulées (clients)</div>
+          <div class="mini-stat-value" style="font-size:16px;color:${l.st.totalCreances > 0 ? 'var(--red)' : 'var(--green)'};">${fcfa(l.st.totalCreances)}</div>
+        </div>
+        <div class="mini-stat" style="grid-column:span 2;background:#F0FDF4;border:1px solid #86EFAC;">
+          <div class="mini-stat-label" style="color:#166534;">💵 Total encaissé (cumulé)</div>
+          <div class="mini-stat-value" style="font-size:16px;color:var(--green);">${fcfa(l.st.totalEncaisse)}</div>
+        </div>
+        <div class="mini-stat" style="grid-column:span 2;background:#FFFBEB;border:1px solid #FCD34D;">
+          <div class="mini-stat-label" style="color:#92400E;">↩️ Retours cumulés · <span style="font-weight:400;">Auj: ${l.st.totalRetoursAuj} · Mois: ${l.st.totalRetoursMois}</span></div>
+          <div class="mini-stat-value" style="font-size:16px;color:var(--brown);">${l.st.totalRetours} <span style="font-size:12px;font-weight:400;color:var(--muted);">pains au total</span></div>
+        </div>
       </div>
       <button class="btn-switch-view btn-primary" data-username="${escHTML(l.username)}" data-role="livreur" style="width:100%;justify-content:center;margin-top:12px;background:linear-gradient(135deg,#7C3AED,#A78BFA);box-shadow:0 4px 14px rgba(124,58,237,.25);">
         👁️ Voir l'espace de ${escHTML(l.nom.split(' ')[0])}
@@ -2271,7 +2321,7 @@ function buildChargementTab(){
           </div>
           ${r.charges.sort((a,b)=>a.numCharge - b.numCharge).map((ch,i) => `
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-bottom:1px dashed var(--border);gap:8px;">
-            <span style="color:var(--muted);flex:1;">C${ch.numCharge||i+1} (${ch.periode||'Matin'}) · ${new Date(ch.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
+            <span style="color:var(--muted);flex:1;">C${ch.numCharge||i+1} (${getPeriodeLabel(ch.periode||getPeriodeAuto(new Date(ch.date)))}) · ${new Date(ch.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
             <strong>${ch.quantite} pains</strong>
             <div style="display:flex;gap:4px;flex-shrink:0;">
               <button class="btn-edit-charge" data-id="${escHTML(ch.id)}" style="background:#EFF6FF;border:none;border-radius:6px;padding:3px 7px;cursor:pointer;color:#1D4ED8;font-size:11px;font-weight:700;" title="Modifier">✏️</button>
@@ -2302,7 +2352,7 @@ function buildChargementTab(){
             <td style="font-size:13px;color:var(--muted);">${fdatetime(c.date)}</td>
             <td><strong>${escHTML(c.livreurNom||c.livreur)}</strong></td>
             <td><span class="badge" style="background:var(--bg);color:var(--dark);">Charge ${c.numCharge||1}</span></td>
-            <td><span class="badge" style="background:#FEF3C7;color:#92400E;">${c.periode === 'soir' ? '🌙 Soir' : '☀️ Matin'}</span></td>
+            <td><span class="badge" style="background:#FEF3C7;color:#92400E;">${getPeriodeLabel(c.periode||getPeriodeAuto(new Date(c.date)))}</span></td>
             <td><span style="font-family:'Syne';font-size:16px;font-weight:800;color:#1D4ED8;">${c.quantite}</span></td>
             <td style="font-size:13px;">${escHTML(c.chargeurNom||c.chargeur)}</td>
             <td class="right">
@@ -2428,13 +2478,18 @@ function buildLivraisonsTab(){
           // Affichage dépôts par charge
           let depotsHTML = '';
           if(l.depots && l.depots.length > 0) {
-            depotsHTML = l.depots.filter(d=>d.qte>0).map(d => 
-              `<span style="display:inline-block; background:var(--bg); border-radius:5px; padding:2px 6px; font-size:11px; margin:1px; border:1px solid var(--border);">C${d.numCharge}: <strong>${d.qte}</strong></span>`
-            ).join('') + `<div style="font-size:12px; color:var(--brown); font-weight:700; margin-top:3px;">= ${l.matin+l.soir} pains</div>`;
+            depotsHTML = l.depots.filter(d=>d.qte>0).map(d => {
+              const per = d.periode || (d.numCharge === 1 ? 'matin' : 'soir');
+              const bg = per === 'soir' ? '#EDE9FE' : '#FEF3C7';
+              const fg = per === 'soir' ? '#4338CA' : '#D97706';
+              const icon = per === 'soir' ? '🌙' : '☀️';
+              return `<span style="display:inline-block; background:${bg}; color:${fg}; border-radius:6px; padding:2px 7px; font-size:11px; margin:1px; border:1px solid ${fg}; font-weight:700;">${icon}C${d.numCharge}: ${d.qte}</span>`;
+            }).join('') + `<div style="font-size:12px; color:var(--brown); font-weight:700; margin-top:3px;">= ${l.matin+l.soir} pains</div>`;
           } else {
-            // Ancienne structure
-            const total = l.matin + l.soir;
-            depotsHTML = `<span style="font-weight:700;">${total}</span> <span style="font-size:11px; color:var(--muted);">(M:${l.matin} S:${l.soir})</span>`;
+            // Ancienne structure — deviner la période depuis l'heure
+            const matinAff = l.matin > 0 ? `<span style="background:#FEF3C7;color:#D97706;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;">☀️ ${l.matin}</span>` : '';
+            const soirAff = l.soir > 0 ? `<span style="background:#EDE9FE;color:#4338CA;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;">🌙 ${l.soir}</span>` : '';
+            depotsHTML = [matinAff, soirAff].filter(Boolean).join(' ') || `<span style="font-weight:700;">${l.matin+l.soir}</span>`;
           }
           return `<tr class="liv-row" data-search="${escHTML((l.client+' '+l.livreur).toLowerCase())}">
           <td><strong>${escHTML(l.client)}</strong></td>
@@ -2967,6 +3022,93 @@ function buildLivreur(){
       ${kpi('🤲','Dons du jour',`${(() => { const d=(db.dons||[]).filter(x=>isToday(x.date)&&x.livreur===u.username); return d.reduce((a,x)=>a+x.quantite,0); })()} pains`,'var(--muted)')}
     </div>
 
+    <!-- ══ BLOC FINANCIER LIVREUR : Dettes, Encaissements & Retours ══ -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;margin-bottom:24px;">
+
+      <!-- Dettes cumulées clients -->
+      <div style="background:${st.totalCreances > 0 ? 'linear-gradient(135deg,#FFF5F5,#FEE2E2)' : 'linear-gradient(135deg,#F0FDF4,#DCFCE7)'};border:2px solid ${st.totalCreances > 0 ? '#FCA5A5' : '#86EFAC'};border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;">
+        <div style="position:absolute;top:-10px;right:-10px;font-size:60px;opacity:.07;">⚠️</div>
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:${st.totalCreances > 0 ? '#991B1B' : '#166534'};margin-bottom:8px;">💳 Dettes cumulées (clients)</div>
+        <div style="font-family:'Syne';font-size:28px;font-weight:800;color:${st.totalCreances > 0 ? 'var(--red)' : 'var(--green)'};letter-spacing:-0.5px;line-height:1;">${fcfa(st.totalCreances)}</div>
+        <div style="font-size:12px;color:${st.totalCreances > 0 ? '#B91C1C' : '#166534'};margin-top:8px;font-weight:600;">
+          ${st.totalCreances > 0
+            ? `⚠️ ${clients.filter(c => (c.creance||0) > 0).length} client(s) avec impayés`
+            : '✅ Tous les clients sont à jour'}
+        </div>
+        ${st.totalCreances > 0 ? `
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:4px;">
+          ${clients.filter(c=>(c.creance||0)>0).slice(0,3).map(c=>`
+            <div style="display:flex;justify-content:space-between;font-size:12px;background:rgba(255,255,255,.6);border-radius:6px;padding:4px 8px;">
+              <span style="color:#7F1D1D;font-weight:600;">📍 ${escHTML(c.nom.length>18?c.nom.slice(0,18)+'…':c.nom)}</span>
+              <span style="color:var(--red);font-weight:800;">${fcfa(c.creance)}</span>
+            </div>
+          `).join('')}
+          ${clients.filter(c=>(c.creance||0)>0).length > 3 ? `<div style="font-size:11px;color:#991B1B;text-align:center;margin-top:2px;">+ ${clients.filter(c=>(c.creance||0)>0).length - 3} autre(s)…</div>` : ''}
+        </div>` : ''}
+      </div>
+
+      <!-- Total encaissé cumulé -->
+      <div style="background:linear-gradient(135deg,#F0FDF4,#DCFCE7);border:2px solid #86EFAC;border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;">
+        <div style="position:absolute;top:-10px;right:-10px;font-size:60px;opacity:.07;">💵</div>
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:#166534;margin-bottom:8px;">💵 Total encaissé (cumulé)</div>
+        <div style="font-family:'Syne';font-size:28px;font-weight:800;color:var(--green);letter-spacing:-0.5px;line-height:1;">${fcfa(st.totalEncaisse)}</div>
+        <div style="font-size:12px;color:#166534;margin-top:8px;font-weight:600;">
+          📋 Sur ${fcfa(st.totalDu)} facturé au total
+        </div>
+        ${st.totalDu > 0 ? `
+        <div style="margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#166534;margin-bottom:4px;">
+            <span>Taux de recouvrement</span>
+            <span>${Math.round((st.totalEncaisse/st.totalDu)*100)}%</span>
+          </div>
+          <div style="height:8px;background:rgba(255,255,255,.6);border-radius:20px;overflow:hidden;">
+            <div style="height:100%;width:${Math.min(100,Math.round((st.totalEncaisse/st.totalDu)*100))}%;background:linear-gradient(90deg,var(--green),#34D399);border-radius:20px;transition:width .8s ease;"></div>
+          </div>
+        </div>` : ''}
+        ${st.totalDu > st.totalEncaisse ? `
+        <div style="margin-top:8px;background:rgba(255,255,255,.6);border-radius:8px;padding:5px 10px;display:flex;justify-content:space-between;font-size:12px;">
+          <span style="color:#92400E;font-weight:700;">Non encaissé :</span>
+          <span style="color:var(--red);font-weight:800;">${fcfa(st.totalDu - st.totalEncaisse)}</span>
+        </div>` : ''}
+      </div>
+
+      <!-- Retours (invendus) cumulés -->
+      <div style="background:linear-gradient(135deg,#FFFBEB,#FEF3C7);border:2px solid #FCD34D;border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;">
+        <div style="position:absolute;top:-10px;right:-10px;font-size:60px;opacity:.07;">↩️</div>
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:#92400E;margin-bottom:8px;">↩️ Retours cumulés (invendus)</div>
+        <div style="font-family:'Syne';font-size:28px;font-weight:800;color:var(--brown);letter-spacing:-0.5px;line-height:1;">${st.totalRetours.toLocaleString()} <span style="font-size:14px;font-weight:600;color:var(--muted);">pains</span></div>
+        <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="background:rgba(255,255,255,.7);border-radius:10px;padding:10px;text-align:center;border:1px solid #FDE68A;">
+            <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#92400E;letter-spacing:.4px;margin-bottom:4px;">Aujourd'hui</div>
+            <div style="font-family:'Syne';font-size:22px;font-weight:800;color:${st.totalRetoursAuj > 0 ? 'var(--amber)' : 'var(--green)'};">${st.totalRetoursAuj}</div>
+            <div style="font-size:11px;color:var(--muted);">pains</div>
+          </div>
+          <div style="background:rgba(255,255,255,.7);border-radius:10px;padding:10px;text-align:center;border:1px solid #FDE68A;">
+            <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#92400E;letter-spacing:.4px;margin-bottom:4px;">Ce mois</div>
+            <div style="font-family:'Syne';font-size:22px;font-weight:800;color:var(--amber);">${st.totalRetoursMois}</div>
+            <div style="font-size:11px;color:var(--muted);">pains</div>
+          </div>
+        </div>
+        ${st.totalDu > 0 ? (() => {
+          const totalVendu = db.livraisons.filter(l=>l.livreur===u.username&&l.statut==='terminee').reduce((a,l)=>a+l.vendu,0);
+          const totalSortis = db.livraisons.filter(l=>l.livreur===u.username&&l.statut==='terminee').reduce((a,l)=>a+l.matin+l.soir,0);
+          const tauxRetour = totalSortis > 0 ? ((st.totalRetours / totalSortis) * 100).toFixed(1) : 0;
+          return `
+        <div style="margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#92400E;margin-bottom:4px;">
+            <span>Taux de retour global</span>
+            <span style="color:${parseFloat(tauxRetour)>20?'var(--red)':parseFloat(tauxRetour)>10?'var(--amber)':'var(--green)'};">${tauxRetour}%</span>
+          </div>
+          <div style="height:8px;background:rgba(255,255,255,.6);border-radius:20px;overflow:hidden;">
+            <div style="height:100%;width:${Math.min(100,tauxRetour)}%;background:linear-gradient(90deg,var(--amber),var(--red));border-radius:20px;transition:width .8s ease;"></div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;">${st.totalRetours} retournés / ${totalSortis} déposés</div>
+        </div>`;
+        })() : ''}
+      </div>
+
+    </div>
+
     ${st.nbCharges > 0 ? `
     <div class="card" style="margin-bottom:20px; border-color:var(--amber); border-width:2px; padding:16px;">
       <div style="font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:12px;">📋 Mes charges du jour</div>
@@ -3304,7 +3446,7 @@ function buildChargeur(){
             </div>
             ${r.charges.sort((a,b)=>a.numCharge-b.numCharge).map((ch,i)=>`
             <div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px dashed var(--border);">
-              <span style="color:var(--muted);">C${ch.numCharge||i+1} (${ch.periode||'Matin'}) · ${new Date(ch.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
+              <span style="color:var(--muted);">C${ch.numCharge||i+1} (${getPeriodeLabel(ch.periode||getPeriodeAuto(new Date(ch.date)))}) · ${new Date(ch.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>
               <span><strong>${ch.quantite}</strong> · <em style="color:#7C3AED;">${escHTML(ch.mode)}</em></span>
             </div>`).join('')}
           </div>`;
@@ -3324,7 +3466,7 @@ function buildChargeur(){
             <td style="font-size:13px;color:var(--muted);">${new Date(c.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
             <td><strong>${escHTML(c.livreurNom||c.livreur)}</strong></td>
             <td><span class="badge" style="background:var(--bg);color:var(--dark);">Charge ${c.numCharge||1}</span></td>
-            <td><span class="badge" style="background:#FEF3C7;color:#92400E;">${c.periode==='soir'?'🌙 Soir':'☀️ Matin'}</span></td>
+            <td><span class="badge" style="background:#FEF3C7;color:#92400E;">${getPeriodeLabel(c.periode||getPeriodeAuto(new Date(c.date)))}</span></td>
             <td><span style="font-family:'Syne';font-size:16px;font-weight:800;color:#1D4ED8;">${c.quantite}</span> pains</td>
           </tr>`).join('')}
         </tbody>
@@ -3371,13 +3513,11 @@ function buildModalChargeur(){
     function getNextCharge(username) {
       const chargesAujLiv = (db.charges||[]).filter(c => c.livreur === username && isToday(c.date));
       const numCharge = chargesAujLiv.length + 1;
-      // Période : matin pour les 2 premières, soir ensuite (logique adaptable)
-      const periode = numCharge <= 2 ? 'matin' : 'soir';
+      const periode = getPeriodeAuto(); // ← basé sur l'heure réelle
       return { numCharge, periode, total: chargesAujLiv.reduce((a,c)=>a+c.quantite,0) };
     }
 
     const now = new Date();
-    const heureVal = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
 
     // Si un livreur est déjà sélectionné, afficher directement le formulaire simplifié
     if(selectedLivreur) {
@@ -3416,22 +3556,10 @@ function buildModalChargeur(){
               <div style="text-align:center;background:#fff;border-radius:10px;padding:10px;border:2px solid #BAE6FD;">
                 <div style="font-size:10px;color:#0369A1;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Période</div>
                 <div style="font-family:'Syne';font-size:28px;font-weight:800;color:${periode==='matin'?'#D97706':'#6D28D9'};">${periode==='matin'?'☀️':'🌙'}</div>
-                <div style="font-size:12px;color:#6B7280;">${periode==='matin'?'Matin':'Soir'}</div>
+                <div style="font-size:12px;color:#6B7280;">${periode==='matin'?'Matin (avant 13h)':'Soir (après 13h)'}</div>
               </div>
             </div>
-            <!-- Possibilité de corriger la période si besoin -->
-            <details style="margin-top:12px;">
-              <summary style="font-size:12px;color:#0369A1;cursor:pointer;font-weight:600;">⚙️ Modifier la période manuellement</summary>
-              <select id="m-ch-periode" class="form-select" style="margin-top:8px;">
-                <option value="matin" ${periode==='matin'?'selected':''}>☀️ Matin</option>
-                <option value="soir" ${periode==='soir'?'selected':''}>🌙 Soir</option>
-              </select>
-            </details>
-            <!-- Champ caché pour stocker le mode -->
-            <input type="hidden" id="m-ch-num" value="${numCharge}"/>
             <input type="hidden" id="m-ch-livreur" value="${escHTML(selectedLivreur)}" data-nom="${escHTML(liv.nom)}"/>
-            <input type="hidden" id="m-ch-heure" value="${heureVal}"/>
-            <input type="hidden" id="m-ch-mode" value="Main propre"/>
           </div>
 
           <!-- Seul champ à remplir : la quantité -->
@@ -3685,19 +3813,14 @@ function buildModal(){
         ${livreurs.map(l=>`<option value="${escHTML(l.username)}" data-nom="${escHTML(l.nom)}" ${ch.livreur===l.username?'selected':''}>${escHTML(l.nom)}</option>`).join('')}
       </select>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">N° de charge</label>
-        <select id="ec-num" class="form-select">
-          ${[1,2,3,4,5].map(n=>`<option value="${n}" ${(ch.numCharge||1)==n?'selected':''}>Charge ${n}</option>`).join('')}
-        </select>
+    <div style="background:#F0F9FF;border:2px solid #BAE6FD;border-radius:12px;padding:14px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center;">
+      <div>
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#0369A1;margin-bottom:4px;">N° Charge (auto)</div>
+        <div style="font-family:'Syne';font-size:24px;font-weight:800;color:#1D4ED8;">${ch.numCharge || 1}</div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Période</label>
-        <select id="ec-periode" class="form-select">
-          <option value="matin" ${ch.periode!=='soir'?'selected':''}>☀️ Matin</option>
-          <option value="soir" ${ch.periode==='soir'?'selected':''}>🌙 Soir</option>
-        </select>
+      <div>
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#0369A1;margin-bottom:4px;">Période (auto)</div>
+        <div style="font-size:22px;">${getPeriodeLabel(ch.periode)}</div>
       </div>
     </div>
     <div class="form-group">
@@ -3705,7 +3828,7 @@ function buildModal(){
       <input id="ec-qte" class="form-input" type="number" min="1" value="${ch.quantite}" style="font-size:22px;font-weight:800;text-align:center;color:#1D4ED8;"/>
     </div>
     <div style="background:#FEF3C7;border-radius:10px;padding:12px 14px;margin-bottom:16px;border:1px solid #FCD34D;font-size:12px;color:#78350F;">
-      ⚠️ La modification met à jour la charge et le stock du livreur. L'ancienne quantité (${ch.quantite} pains) sera remplacée.
+      ⚠️ Seule la quantité est modifiable. L'ancienne quantité (${ch.quantite} pains) sera remplacée.
     </div>
     <div id="modal-error" style="display:none;" class="alert-error"></div>
     <div class="form-actions">
@@ -3831,21 +3954,28 @@ function buildModal(){
       chargesAuj.forEach((stock, i) => {
         const numCharge = stock.numCharge || (i + 1);
         const heure = new Date(stock.date).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+        const periode = stock.type || getPeriodeAuto(new Date(stock.date));
+        const periodeLabel = getPeriodeLabel(periode);
+        const periodeColor = periode === 'soir' ? '#4338CA' : '#D97706';
+        const periodeBg = periode === 'soir' ? '#EDE9FE' : '#FEF3C7';
         const depotExist = depotsExistants.find(d => d.chargeId === stock.id);
         const valeurActuelle = depotExist ? depotExist.qte : '';
 
         depotsSection += `
-        <div style="background:var(--bg); border-radius:10px; padding:12px 14px; margin-bottom:10px; border:1px solid var(--border);">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <span style="font-weight:700; font-size:14px;">🥖 Charge ${numCharge}</span>
-            <span style="font-size:11px; color:var(--muted);">⏰ Prise à ${heure} · ${stock.quantite} pains disponibles</span>
+        <div style="background:var(--bg); border-radius:10px; padding:12px 14px; margin-bottom:10px; border:2px solid ${periodeBg};">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-weight:800; font-size:14px;">🥖 Charge ${numCharge}</span>
+              <span style="background:${periodeBg}; color:${periodeColor}; font-size:12px; font-weight:800; padding:3px 10px; border-radius:20px; border:1px solid ${periodeColor};">${periodeLabel}</span>
+            </div>
+            <span style="font-size:11px; color:var(--muted);">⏰ ${heure} · ${stock.quantite} pains disponibles</span>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
             <label style="font-size:12px; color:var(--muted); white-space:nowrap;">Déposé ici :</label>
-            <input id="depot-${stock.id}" data-charge-id="${stock.id}" data-num="${numCharge}" 
+            <input id="depot-${stock.id}" data-charge-id="${stock.id}" data-num="${numCharge}" data-periode="${periode}"
               class="form-input depot-input" type="number" min="0" 
               placeholder="0" value="${valeurActuelle}"
-              style="flex:1; font-weight:700; font-size:16px; text-align:center;">
+              style="flex:1; font-weight:700; font-size:16px; text-align:center; border-color:${periodeColor};">
             <span style="font-size:12px; color:var(--muted); white-space:nowrap;">pains</span>
           </div>
         </div>`;
@@ -3867,13 +3997,47 @@ function buildModal(){
       }
     }
 
+    // Calcul du stock restant disponible pour ce livreur (total chargé - total déposé tous clients)
+    const totalChargeAuj = chargesAuj.reduce((a,s)=>a+s.quantite,0);
+    const totalDeposeAutresClients = (db.livraisons||[])
+      .filter(l => l.livreur===state.user.username && isToday(l.date) && l.clientId !== c.id)
+      .reduce((a,l)=>a+(l.depots||[]).reduce((s,d)=>s+d.qte,0),0);
+    const stockRestant = totalChargeAuj - totalDeposeAutresClients - totalDeposeActuel;
+    const numProchaine = chargesAuj.length + 1;
+    const periodeProchaine = getPeriodeLabel(getPeriodeAuto(new Date()));
+
     inner=`
     <div class="modal-title">📦 Fiche Journalière : ${escHTML(c.nom)}</div>
-    <div style="font-size:13px; color:var(--muted); margin-bottom:18px;">Renseignez les dépôts pour chaque charge. Clôturez en fin de journée avec les invendus et l'encaissement.</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:14px;">Renseignez les dépôts pour chaque charge. Clôturez en fin de journée avec les invendus et l'encaissement.</div>
     
-    ${isClosed ? `<div class="alert-success" style="padding:10px; margin-bottom:15px; font-weight:bold;">✅ Cette journée est clôturée. Vous pouvez modifier en cas d'erreur.</div>` : ''}
+    ${isClosed ? '<div class="alert-success" style="padding:10px; margin-bottom:15px; font-weight:bold;">✅ Cette journée est clôturée. Vous pouvez modifier en cas d\'erreur.</div>' : ''}
 
-    <div style="margin-bottom:20px; border:2px solid var(--border); border-radius:12px; padding:16px;">
+    <!-- Bandeau stock disponible + bouton nouvelle charge -->
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:linear-gradient(135deg,#F0F9FF,#E0F2FE); border:2px solid #BAE6FD; border-radius:12px; padding:12px 16px; margin-bottom:16px; flex-wrap:wrap;">
+      <div>
+        <div style="font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:#0369A1; margin-bottom:3px;">Stock disponible</div>
+        <div style="font-family:'Syne'; font-size:22px; font-weight:800; color:${stockRestant<=0?'#DC2626':'#0369A1'};">${stockRestant} pains</div>
+        <div style="font-size:11px; color:var(--muted);">sur ${totalChargeAuj} chargés aujourd'hui</div>
+      </div>
+      <button id="btn-add-charge-inline" style="padding:11px 18px; background:linear-gradient(135deg,#1D4ED8,#3B82F6); color:#fff; border:none; border-radius:10px; font-family:'Syne'; font-size:13px; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:7px; box-shadow:0 4px 14px rgba(29,78,216,.3); white-space:nowrap;">
+        ➕ Charge ${numProchaine} <span style="opacity:.85;font-size:11px;">(${periodeProchaine})</span>
+      </button>
+    </div>
+    <!-- Formulaire nouvelle charge (caché par défaut) -->
+    <div id="new-charge-form" style="display:none; background:#EFF6FF; border:2px solid #93C5FD; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
+      <div style="font-size:13px; font-weight:800; color:#1D4ED8; margin-bottom:10px;">🥖 Nouvelle charge — N° ${numProchaine} · ${periodeProchaine}</div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <input id="new-charge-qte" class="form-input" type="number" min="1" placeholder="Ex: 100" style="flex:1; font-size:20px; font-weight:800; text-align:center; color:#1D4ED8; border-color:#3B82F6;">
+        <span style="font-size:13px; color:var(--muted); white-space:nowrap;">pains</span>
+      </div>
+      <div id="new-charge-preview" style="font-size:12px; color:#1D4ED8; margin-top:8px; display:none;"></div>
+      <div style="display:flex; gap:10px; margin-top:12px;">
+        <button id="btn-cancel-charge-inline" style="flex:1; padding:10px; background:#E5E7EB; color:var(--dark); border:none; border-radius:8px; font-family:'DM Sans'; font-size:13px; font-weight:600; cursor:pointer;">Annuler</button>
+        <button id="btn-confirm-charge-inline" style="flex:2; padding:10px; background:linear-gradient(135deg,#1D4ED8,#3B82F6); color:#fff; border:none; border-radius:8px; font-family:'Syne'; font-size:13px; font-weight:800; cursor:pointer; box-shadow:0 3px 10px rgba(29,78,216,.3);">✅ Valider la charge ${numProchaine}</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:20px; border:2px solid var(--border); border-radius:12px; padding:16px;" id="depots-section-wrap">
       ${depotsSection}
     </div>
     
@@ -4233,6 +4397,48 @@ function bindEvents(){
     showToast('Vente enregistrée : '+qte+' pains pour '+fcfa(montant)+(creance>0?' (Créance: '+fcfa(creance)+')':''), creance>0?'info':'success');
   });
 
+  // ── Nouvelle charge inline depuis la Fiche Client ──
+  document.getElementById('btn-add-charge-inline')?.addEventListener('click', () => {
+    document.getElementById('new-charge-form').style.display = 'block';
+    document.getElementById('btn-add-charge-inline').style.display = 'none';
+    setTimeout(() => document.getElementById('new-charge-qte')?.focus(), 60);
+  });
+  document.getElementById('btn-cancel-charge-inline')?.addEventListener('click', () => {
+    document.getElementById('new-charge-form').style.display = 'none';
+    document.getElementById('btn-add-charge-inline').style.display = 'flex';
+    document.getElementById('new-charge-qte').value = '';
+  });
+  document.getElementById('new-charge-qte')?.addEventListener('input', (e) => {
+    const q = parseInt(e.target.value)||0;
+    const prev = document.getElementById('new-charge-preview');
+    if(q > 0) {
+      prev.innerHTML = `✅ ${q} pains supplémentaires seront ajoutés pour ce client`;
+      prev.style.display = 'block';
+    } else { prev.style.display = 'none'; }
+  });
+  document.getElementById('btn-confirm-charge-inline')?.addEventListener('click', () => {
+    const qte = parseInt(document.getElementById('new-charge-qte')?.value);
+    if(!qte || qte <= 0){ showError('Veuillez entrer une quantité valide'); return; }
+    const now = new Date();
+    const numCharge = getNextNumStock(state.user.username);
+    const periode = getPeriodeAuto(now);
+    const newStockId = 'stk'+uid();
+    db.stocks.push({
+      id: newStockId,
+      livreur: state.user.username,
+      numCharge,
+      type: periode,
+      quantite: qte,
+      date: now.toISOString()
+    });
+    saveDB();
+    // Rouvrir la fiche client avec la nouvelle charge
+    const clientId = state.activeClient.id;
+    const livToday = db.livraisons.find(l => l.clientId === clientId && l.livreur === state.user.username && (isToday(l.date) || l.statut === 'en_cours'));
+    setState({ modal: 'ficheClient', activeClient: state.activeClient, activeLiv: livToday || null });
+    showToast(`✅ Charge ${numCharge} · ${getPeriodeLabel(periode)} · ${qte} pains ajoutés !`, 'success', 4000);
+  });
+
   // Open Fiche Client
   document.querySelectorAll('.action-client-card').forEach(card => {
     card.addEventListener('click', (e) => {
@@ -4315,7 +4521,19 @@ function bindEvents(){
     const payeVal = parseInt(payeInput)||0;
     
     if(totalDepose > 0 || isRestantFilled) {
-       let html = `📦 Total déposé : <strong>${totalDepose} pains</strong><br/>`;
+       // Calculer matin/soir depuis les inputs
+       let totalMatin = 0, totalSoir = 0;
+       document.querySelectorAll('.depot-input').forEach(inp => {
+         const q = parseInt(inp.value)||0;
+         if(inp.dataset.periode === 'soir') totalSoir += q;
+         else totalMatin += q;
+       });
+       const periodeDetail = [
+         totalMatin > 0 ? `<span style="background:#FEF3C7;color:#D97706;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:800;">☀️ Matin: ${totalMatin}</span>` : '',
+         totalSoir > 0 ? `<span style="background:#EDE9FE;color:#4338CA;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:800;">🌙 Soir: ${totalSoir}</span>` : ''
+       ].filter(Boolean).join(' ');
+
+       let html = `📦 Total déposé : <strong>${totalDepose} pains</strong>${periodeDetail ? '<br/>'+periodeDetail : ''}<br/>`;
        if(isRestantFilled) {
           const v = totalDepose - rVal;
           if(v >= 0) {
@@ -4535,23 +4753,20 @@ function bindEvents(){
       showToast(`✅ Production enregistrée : ${qte} pains. Farine déduite du stock.`, 'success', 5000);
   });
 
-  // Save Enregistrement Charge par le Chargeur (Ajout N° charge + période)
+  // Save Enregistrement Charge par le Chargeur — tout est calculé automatiquement
   document.getElementById('btn-save-charge')?.addEventListener('click', () => {
       const selectLivreur = document.getElementById('m-ch-livreur');
       const livreurId = selectLivreur?.value;
-      // m-ch-livreur est un <input type="hidden"> avec data-nom, pas un <select>
       const livreurNom = selectLivreur?.dataset?.nom || (db.users[livreurId]?.nom) || livreurId;
       const qte = parseInt(document.getElementById('m-ch-qte')?.value);
-      const numCharge = parseInt(document.getElementById('m-ch-num')?.value);
-      const periode = document.getElementById('m-ch-periode')?.value;
-      const heure = document.getElementById('m-ch-heure')?.value;
-      const mode = document.getElementById('m-ch-mode')?.value;
 
-      if(!livreurId || !qte || qte <= 0 || !heure){ showError('Veuillez remplir le livreur, la quantité et l\'heure'); return; }
+      if(!livreurId){ showError('Livreur introuvable'); return; }
+      if(!qte || qte <= 0){ showError('Veuillez entrer une quantité valide'); return; }
 
-      const dateObj = new Date();
-      const [h, m] = heure.split(':');
-      dateObj.setHours(h, m, 0, 0);
+      const now = new Date();
+      // ── Calcul 100% automatique ──
+      const numCharge = getNextNumCharge(livreurId);
+      const periode = getPeriodeAuto(now);  // heure actuelle → matin ou soir
 
       if(!db.charges) db.charges = [];
       db.charges.push({
@@ -4559,52 +4774,52 @@ function bindEvents(){
           livreur: livreurId,
           livreurNom: livreurNom,
           quantite: qte,
-          numCharge: numCharge,
-          periode: periode,
-          mode: mode,
+          numCharge,
+          periode,
+          mode: 'Auto',
           chargeur: state.user.username,
           chargeurNom: state.user.nom,
-          date: dateObj.toISOString()
+          date: now.toISOString()
       });
 
-      // Si vous souhaitez que la charge soit aussi reflétée chez le livreur automatiquement, 
-      // on l'ajoute dans ses db.stocks (ce qui lui évite de le faire lui-même).
+      // Mise à jour stocks livreur (évite la double saisie)
       db.stocks.push({
           id: 'stk'+uid(),
           livreur: livreurId,
-          numCharge: numCharge,
-          type: periode, 
+          numCharge,
+          type: periode,
           quantite: qte,
-          date: dateObj.toISOString()
+          date: now.toISOString()
       });
 
       saveDB();
       setState({modal:null});
-      showToast(`✅ Charge n°${numCharge} (${periode}) enregistrée : ${qte} pains pour ${livreurNom}.`, 'success', 5000);
+      const heure = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      showToast(`✅ Charge ${numCharge} · ${getPeriodeLabel(periode)} · ${qte} pains → ${livreurNom} (${heure})`, 'success', 5000);
   });
 
-  // Save Prise de Stock Global (Par le livreur lui-même s'il le fait manuellement)
+  // Save Prise de Stock (livreur) — numéro et période 100% automatiques
   document.getElementById('btn-save-stock-global')?.addEventListener('click',()=>{
     const qte = parseInt(document.getElementById('s-qte')?.value);
-    
     if(!qte || qte <= 0){ showError('Veuillez entrer une quantité valide'); return; }
-    
-    const chargesAuj = (db.stocks||[]).filter(s => s.livreur === state.user.username && isToday(s.date));
-    const numCharge = chargesAuj.length + 1;
-    const heure = new Date().toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+
+    const now = new Date();
+    const numCharge = getNextNumStock(state.user.username);
+    const periode = getPeriodeAuto(now);
 
     db.stocks.push({
       id:'stk'+uid(),
       livreur: state.user.username,
       numCharge,
-      type: numCharge <= 1 ? 'matin' : 'soir', // compatibilité ancienne
+      type: periode,
       quantite: qte,
-      date: new Date().toISOString()
+      date: now.toISOString()
     });
-    
-    saveDB(); 
+
+    saveDB();
     setState({modal:null});
-    showToast(`✅ Charge ${numCharge} validée : ${qte} pains pris à ${heure}.`, 'success', 5000);
+    const heure = now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    showToast(`✅ Charge ${numCharge} · ${getPeriodeLabel(periode)} · ${qte} pains pris à ${heure}.`, 'success', 5000);
   });
 
   // Live preview quantité stock (Livreur)
@@ -4658,15 +4873,16 @@ function bindEvents(){
       const qte = parseInt(inp.value)||0;
       const chargeId = inp.dataset.chargeId;
       const numCharge = parseInt(inp.dataset.num)||1;
+      const periode = inp.dataset.periode || getPeriodeAuto(new Date());
       if(qte >= 0) {
-        depots.push({ chargeId, numCharge, qte });
+        depots.push({ chargeId, numCharge, qte, periode });
         totalDepose += qte;
       }
     });
 
-    // Compatibilité ancienne structure matin/soir
-    const matin = depots.filter(d => d.numCharge === 1).reduce((a,d)=>a+d.qte, 0);
-    const soir = depots.filter(d => d.numCharge >= 2).reduce((a,d)=>a+d.qte, 0);
+    // Compatibilité ancienne structure matin/soir — basée sur la période réelle
+    const matin = depots.filter(d => d.periode === 'matin').reduce((a,d)=>a+d.qte, 0);
+    const soir = depots.filter(d => d.periode === 'soir').reduce((a,d)=>a+d.qte, 0);
     
     const rEntierInput = document.getElementById('m-restant-entier')?.value;
     const rDemiInput = document.getElementById('m-restant-demi')?.value;
@@ -4724,7 +4940,10 @@ function bindEvents(){
 
     if(statut === 'terminee') {
       const nbCharges = depots.filter(d=>d.qte>0).length;
-      showToast(`✅ Journée clôturée pour ${state.activeClient.nom} ! ${nbCharges} charge(s) · ${vendu} pains vendus · ${fcfa(paye)} encaissés.`, 'success', 5000);
+      const matinStr = matin > 0 ? `☀️ Matin: ${matin}` : '';
+      const soirStr = soir > 0 ? `🌙 Soir: ${soir}` : '';
+      const periodeStr = [matinStr, soirStr].filter(Boolean).join(' · ');
+      showToast(`✅ Clôturé — ${state.activeClient.nom} · ${periodeStr || nbCharges+' charge(s)'} · ${vendu} vendus · ${fcfa(paye)} encaissés.`, 'success', 5000);
     }
   }
 
@@ -4887,8 +5106,6 @@ function bindEvents(){
     const livreurId = sel?.value;
     const livreurNom = sel?.options[sel.selectedIndex]?.dataset.nom || livreurId;
     const nouvelleQte = parseInt(document.getElementById('ec-qte')?.value);
-    const nouveauNum = parseInt(document.getElementById('ec-num')?.value);
-    const nouvellePeriode = document.getElementById('ec-periode')?.value;
 
     if (!livreurId || !nouvelleQte || nouvelleQte <= 0) {
       showError('Veuillez remplir tous les champs obligatoires.');
@@ -4898,24 +5115,21 @@ function bindEvents(){
     const ancienneQte = ch.quantite;
     const ancienLivreur = ch.livreur;
 
-    // Mettre à jour la charge
+    // Mettre à jour la charge (num et période restent inchangés)
     ch.livreur = livreurId;
     ch.livreurNom = livreurNom;
     ch.quantite = nouvelleQte;
-    ch.numCharge = nouveauNum;
-    ch.periode = nouvellePeriode;
     ch.modifiedAt = new Date().toISOString();
     ch.modifiedBy = state.user.nom;
 
-    // Mettre à jour le stock correspondant (même id de stock si existant, sinon ajustement delta)
+    // Mettre à jour le stock correspondant
     const stockEntry = (db.stocks||[]).find(s =>
       s.livreur === ancienLivreur && isToday(s.date) &&
-      (s.numCharge === (ch.numCharge) || Math.abs(s.quantite - ancienneQte) < 1)
+      (s.numCharge === ch.numCharge || Math.abs(s.quantite - ancienneQte) < 1)
     );
     if (stockEntry) {
       stockEntry.livreur = livreurId;
       stockEntry.quantite = nouvelleQte;
-      stockEntry.numCharge = nouveauNum;
     }
 
     saveDB();
